@@ -36,7 +36,7 @@ git push -u origin main
 # 登录服务器
 ssh user@your-server
 
-# 也许需要切换用户
+# 切换用户（如需要）
 su - ubuntu
 
 # 创建应用目录
@@ -72,6 +72,9 @@ cd /var/apps/flower-map
 
 # 创建.env文件
 cat > .env << 'EOF'
+# 数据库配置
+DATABASE_URL="file:./data/database.db"
+
 # 服务端口（避免与现有服务冲突）
 PORT=3001
 
@@ -80,30 +83,42 @@ ADMIN_USERNAME=RAY193
 ADMIN_PASSWORD=flowerflower
 SESSION_SECRET=ev556X32L4gLN5KYGcECzLrGe7Nyn86VBzQq3dgsaF8=
 
-# 数据目录配置（使用绝对路径）
-DB_PATH=/var/data/flower-map/data/database.sqlite
-UPLOAD_DIR=/var/data/flower-map/uploads
+# 上传目录配置
+UPLOAD_DIR="./uploads"
 EOF
 
 # 设置权限（保护敏感信息）
 chmod 600 .env
 ```
 
-### 4. 安装依赖并启动
+### 4. 安装依赖并生成Prisma客户端
 
 ```bash
-# 安装依赖（包含dotenv读取.env文件）
+# 安装依赖
 npm install --production
 
+# 生成Prisma客户端
+npx prisma generate
+
+# 执行数据库迁移（创建表结构）
+npx prisma migrate deploy
+```
+
+### 5. 启动服务
+
+```bash
 # 使用PM2启动（推荐）
-npm install -g pm2
 pm2 start server.js --name flower-map
+
+# 查看服务状态
+pm2 status
+pm2 logs flower-map
 
 # 或直接用node启动
 # node server.js
 ```
 
-### 5. 配置DNS解析
+### 6. 配置DNS解析
 
 在域名管理面板添加子域名解析：
 
@@ -112,7 +127,7 @@ pm2 start server.js --name flower-map
 **记录值**：服务器IP地址（如49.235.184.100）  
 **TTL**：600（10分钟）
 
-### 6. 配置Nginx（独立站点）
+### 7. 配置Nginx（独立站点）
 
 创建花卉地图的独立Nginx配置文件：
 
@@ -173,7 +188,7 @@ sudo systemctl reload nginx
 
 ```bash
 # 备份数据库和上传文件
-cp /var/data/flower-map/data/database.sqlite /var/data/flower-map/data/database.sqlite.bak
+cp /var/data/flower-map/data/database.db /var/data/flower-map/data/database.db.bak
 cp -r /var/data/flower-map/uploads /var/data/flower-map/uploads.bak
 ```
 
@@ -189,11 +204,14 @@ git pull origin main
 npm install --production
 ```
 
-### 3. 执行数据迁移（如有需要）
+### 3. 执行数据库迁移（如有需要）
 
 ```bash
-# 如果有新的数据迁移脚本
-node migrate.js
+# 重新生成Prisma客户端
+npx prisma generate
+
+# 执行新的数据库迁移
+npx prisma migrate deploy
 ```
 
 ### 4. 重启服务
@@ -214,6 +232,9 @@ pm2 logs flower-map
 
 /var/apps/flower-map/          # 源码目录
 ├── models/
+│   └── index.js             # Prisma客户端配置
+├── prisma/
+│   └── schema.prisma        # 数据库模型定义
 ├── public/
 ├── server.js
 ├── package.json
@@ -221,13 +242,28 @@ pm2 logs flower-map
 
 /var/data/flower-map/         # 数据目录（持久化存储）
 ├── data/
-│   └── database.sqlite       # SQLite数据库
+│   └── database.db          # SQLite数据库文件
 └── uploads/                  # 上传的图片文件
 ```
 
-## 五、注意事项
+## 五、技术栈说明
+
+本项目使用以下技术栈：
+
+- **后端框架**：Express.js
+- **数据库ORM**：Prisma
+- **数据库**：SQLite
+- **会话管理**：express-session
+- **文件上传**：multer
+- **进程管理**：PM2
+- **Web服务器**：Nginx
+- **环境变量**：dotenv
+
+## 六、注意事项
 
 1. **数据备份**：定期备份 `/var/data/flower-map/` 目录
 2. **权限设置**：确保数据目录有正确的读写权限
 3. **环境变量**：生产环境务必设置强密码和随机SESSION_SECRET
-4. **防火墙**：开放80/443端口，如需直接访问3000端口也需开放
+4. **防火墙**：开放80/443端口，如需直接访问3001端口也需开放
+5. **Prisma迁移**：每次更新代码后记得运行 `npx prisma migrate deploy`
+6. **数据库路径**：确保 `.env` 中的 `DATABASE_URL` 指向正确的数据库文件路径

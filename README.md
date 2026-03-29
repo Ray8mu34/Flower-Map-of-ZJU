@@ -1,15 +1,15 @@
 # 浙江大学紫金港校区花卉地图
 
-这是一个基于 `HTML + CSS + 原生 JavaScript + Leaflet + Node.js + Express` 的校园花卉地图网站。
+这是一个基于 `HTML + CSS + 原生 JavaScript + Leaflet + Node.js + Express + Prisma` 的校园花卉地图网站。
 
 ## 当前功能
 
 - 使用本地图片作为校区地图底图
 - 地图平移范围限制在校区实际范围内
 - 支持上传花卉标题、品种、记录人、拍摄时间、地点、描述和多张图片
-- 所有记录保存在 `data/data.json`
-- 网站配置保存在 `data/settings.json`
-- 上传图片保存在 `public/uploads/`
+- 所有记录保存在 SQLite 数据库中
+- 网站配置保存在数据库中
+- 上传图片保存在 `uploads/` 目录
 - 同一地点多条记录会归档到同一个地点详情中
 - 支持关键词搜索、地点筛选、品种筛选
 - 支持管理员登录
@@ -56,6 +56,29 @@
 
 管理员登录后，可以在左上角直接切换模式。
 
+## 技术栈
+
+本项目使用以下技术栈：
+
+### 前端
+- **HTML5**：页面结构
+- **CSS3**：样式设计
+- **原生 JavaScript**：前端逻辑
+- **Leaflet**：地图交互库
+
+### 后端
+- **Node.js**：运行环境
+- **Express.js**：Web 框架
+- **Prisma**：数据库 ORM
+- **SQLite**：轻量级数据库
+- **express-session**：会话管理
+- **multer**：文件上传处理
+- **dotenv**：环境变量管理
+
+### 部署
+- **PM2**：进程管理
+- **Nginx**：Web 服务器
+
 ## 管理员系统
 
 推荐在启动前设置环境变量：
@@ -77,16 +100,15 @@ node server.js
 
 当前版本使用：
 
-- `data/data.json` 保存花卉记录
-- `data/settings.json` 保存网站权限模式配置
-- `public/uploads/` 保存图片文件
+- **SQLite 数据库**：保存花卉记录和网站配置
+- **uploads/ 目录**：保存图片文件
 
-这种方式很适合校园项目早期，但如果未来访问量增加、多人频繁同时写入，建议迁移到数据库。
+使用 Prisma ORM 进行数据库操作，提供以下优势：
 
-推荐升级方向：
-
-- 轻量方案：`SQLite + Prisma`
-- 长期多人使用：`MySQL / PostgreSQL + Prisma`
+- 类型安全的数据访问
+- 自动生成数据库迁移
+- 支持复杂查询
+- 易于维护和扩展
 
 ## 地点归档机制
 
@@ -103,16 +125,20 @@ node server.js
 
 ```text
 MAP/
-├─ data/
-│  ├─ data.json
-│  └─ settings.json
+├─ prisma/
+│  └─ schema.prisma        # 数据库模型定义
+├─ models/
+│  └─ index.js             # Prisma 客户端配置
 ├─ public/
 │  ├─ assets/
 │  │  └─ map.jpg
-│  ├─ uploads/
 │  ├─ app.js
 │  ├─ index.html
 │  └─ style.css
+├─ uploads/                # 上传的图片文件
+├─ data/                  # 数据库文件目录
+│  └─ database.db         # SQLite 数据库
+├─ .env                   # 环境变量配置
 ├─ .gitignore
 ├─ package.json
 ├─ package-lock.json
@@ -135,13 +161,25 @@ cd C:\Users\30674\Desktop\MAP
 npm install
 ```
 
-4. 确认地图图片存在
+4. 生成 Prisma 客户端
+
+```bash
+npx prisma generate
+```
+
+5. 执行数据库迁移
+
+```bash
+npx prisma migrate dev --name init
+```
+
+6. 确认地图图片存在
 
 ```text
 public/assets/map.jpg
 ```
 
-5. 推荐设置管理员环境变量并启动
+7. 推荐设置管理员环境变量并启动
 
 ```powershell
 $env:ADMIN_USERNAME="admin"
@@ -150,15 +188,15 @@ $env:SESSION_SECRET="请改成随机长字符串"
 node server.js
 ```
 
-6. 浏览器访问
+8. 浏览器访问
 
-[http://localhost:3000](http://localhost:3000)
+[http://localhost:3001](http://localhost:3001)
 
 ## 使用流程
 
 ### 新建新地点
 
-- 点击“添加花卉记录”
+- 点击"添加花卉记录"
 - 在地图上点击新地点
 - 填写标题、品种、记录人、拍摄时间、地点、描述
 - 上传图片并提交
@@ -167,13 +205,13 @@ node server.js
 
 - 点击已有地点标记
 - 打开地点详情
-- 点击“在此地点新增记录”
+- 点击"在此地点新增记录"
 - 新记录会归档到当前地点，不会生成新的地图标记
 
 ### 编辑和删除
 
 - 是否允许编辑和删除，取决于当前权限模式
-- 在“仅开放新增”和“仅管理员编辑”模式下，编辑和删除需要管理员
+- 在"仅开放新增"和"仅管理员编辑"模式下，编辑和删除需要管理员
 
 ## 接口说明
 
@@ -212,13 +250,69 @@ node server.js
 
 - 运行 Node.js
 - 持久保存 `data/` 目录
-- 持久保存 `public/uploads/` 目录
+- 持久保存 `uploads/` 目录
+
+详细的部署步骤请参考 [deploy.md](deploy.md)
 
 ## 上传 GitHub
 
 项目已经提供 `.gitignore`，默认会忽略：
 
 - `node_modules/`
-- `public/uploads/`
+- `uploads/`
+- `data/`
 - `.env`
 - 日志文件
+
+## 环境变量说明
+
+项目支持通过 `.env` 文件配置以下环境变量：
+
+```env
+# 数据库配置
+DATABASE_URL="file:./data/database.db"
+
+# 服务端口
+PORT=3001
+
+# 管理员配置
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your-password
+SESSION_SECRET=your-random-secret
+
+# 上传目录
+UPLOAD_DIR="./uploads"
+```
+
+## 数据库模型
+
+### Record 模型
+
+```prisma
+model Record {
+  id          String   @id @default(cuid())
+  locationId  String
+  title       String
+  species     String
+  author      String
+  shotDate    String
+  location    String
+  description String
+  images      String
+  createdAt   String
+  updatedAt   String
+
+  @@map("records")
+}
+```
+
+### Setting 模型
+
+```prisma
+model Setting {
+  id            Int     @id @default(autoincrement())
+  permissionMode String  @default("open")
+
+  @@map("settings")
+}
+```
