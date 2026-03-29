@@ -438,7 +438,6 @@ app.post("/api/records", requireCreatePermission, upload.array("images", 10), as
     
     const now = new Date().toISOString();
     const newRecord = {
-      id: randomUUID(),
       locationId: resolveLocationId(req.body),
       title: req.body.title.trim(),
       species: req.body.species.trim(),
@@ -446,7 +445,6 @@ app.post("/api/records", requireCreatePermission, upload.array("images", 10), as
       shotDate: req.body.shotDate.trim(),
       location: req.body.location.trim(),
       description: req.body.description.trim(),
-      coordinates: { x, y },
       images: JSON.stringify(processedImages),
       createdAt: now,
       updatedAt: now
