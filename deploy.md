@@ -36,9 +36,12 @@ git push -u origin main
 # 登录服务器
 ssh user@your-server
 
+# 也许需要切换用户
+su - ubuntu
+
 # 创建应用目录
-mkdir -p /var/www/flower-map
-cd /var/www/flower-map
+mkdir -p /var/apps/flower-map
+cd /var/apps/flower-map
 
 # 克隆代码（替换为你的仓库地址）
 git clone https://github.com/your-username/flower-map.git .
@@ -65,7 +68,7 @@ chmod 755 /var/data/flower-map/uploads
 在源码目录创建 `.env` 文件：
 
 ```bash
-cd /var/www/flower-map
+cd /var/apps/flower-map
 
 # 创建.env文件
 cat > .env << 'EOF'
@@ -73,9 +76,9 @@ cat > .env << 'EOF'
 PORT=3001
 
 # 管理员配置
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-password
-SESSION_SECRET=your-random-secret
+ADMIN_USERNAME=RAY193
+ADMIN_PASSWORD=flowerflower
+SESSION_SECRET=ev556X32L4gLN5KYGcECzLrGe7Nyn86VBzQq3dgsaF8=
 
 # 数据目录配置（使用绝对路径）
 DB_PATH=/var/data/flower-map/data/database.sqlite
@@ -100,39 +103,69 @@ pm2 start server.js --name flower-map
 # node server.js
 ```
 
-### 5. 配置Nginx（子路径部署）
+### 5. 配置DNS解析
 
-在现有Nginx配置中添加子路径代理（假设主站已配置）：
+在域名管理面板添加子域名解析：
+
+**记录类型**：A记录  
+**主机记录**：flower  
+**记录值**：服务器IP地址（如49.235.184.100）  
+**TTL**：600（10分钟）
+
+### 6. 配置Nginx（独立站点）
+
+创建花卉地图的独立Nginx配置文件：
+
+```bash
+# 创建配置文件
+sudo nano /etc/nginx/sites-available/flower-site
+```
+
+添加以下内容：
 
 ```nginx
 server {
     listen 80;
-    server_name zjuaaa.cn;
+    server_name flower.zjuaaa.cn;
 
-    # 你的主站配置...
+    client_max_body_size 64M;
 
-    # 花卉地图子路径
-    location /flower/ {
-        proxy_pass http://localhost:3001/;  # 注意末尾的斜杠很重要
+    # 上传文件直接服务
+    location /uploads/ {
+        alias /var/data/flower-map/uploads/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        autoindex off;
+    }
+
+    # 代理到Node.js应用
+    location / {
+        proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # WebSocket支持（如需要）
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-    }
-
-    # 上传文件直接服务
-    location /flower/uploads/ {
-        alias /var/data/flower-map/uploads/;
     }
 }
 ```
 
-**访问地址**：`http://zjuaaa.cn/flower/`
+启用配置：
+
+```bash
+# 创建软链接
+sudo ln -s /etc/nginx/sites-available/flower-site /etc/nginx/sites-enabled/
+
+# 测试配置
+sudo nginx -t
+
+# 重载Nginx
+sudo systemctl reload nginx
+```
+
+**访问地址**：`http://flower.zjuaaa.cn`
 
 ## 三、后续更新步骤
 
@@ -147,7 +180,7 @@ cp -r /var/data/flower-map/uploads /var/data/flower-map/uploads.bak
 ### 2. 更新源码
 
 ```bash
-cd /var/www/flower-map
+cd /var/apps/flower-map
 
 # 拉取最新代码
 git pull origin main
@@ -179,7 +212,7 @@ pm2 logs flower-map
 ```
 服务器目录结构：
 
-/var/www/flower-map/          # 源码目录
+/var/apps/flower-map/          # 源码目录
 ├── models/
 ├── public/
 ├── server.js

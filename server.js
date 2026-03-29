@@ -7,7 +7,7 @@ const path = require("path");
 const { randomUUID } = require("crypto");
 
 // 导入数据库模型
-const { Record, Setting } = require('./models');
+const { prisma } = require('./models');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -35,10 +35,25 @@ fs.mkdirSync(uploadDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
 
 // 初始化默认设置
-Setting.findOrCreate({
-  where: { key: 'editMode' },
-  defaults: { value: DEFAULT_SETTINGS.editMode }
-});
+async function initSettings() {
+  try {
+    const existingSetting = await prisma.setting.findFirst({
+      where: { id: 1 }
+    });
+    
+    if (!existingSetting) {
+      await prisma.setting.create({
+        data: {
+          permissionMode: DEFAULT_SETTINGS.editMode
+        }
+      });
+    }
+  } catch (error) {
+    console.error('初始化设置失败:', error);
+  }
+}
+
+initSettings();
 
 const text = {
   invalidFile: "只允许上传常见图片格式。",
@@ -118,29 +133,43 @@ function isAdmin(req) {
   return Boolean(req.session?.isAdmin);
 }
 
-function readRecords() {
-  return Record.findAll();
+async function readRecords() {
+  try {
+    return await prisma.record.findMany();
+  } catch (error) {
+    console.error('读取记录失败:', error);
+    return [];
+  }
 }
 
 function saveRecords(records) {
-  // 这个函数不再需要，因为我们会使用Record.create和Record.update
+  // 这个函数不再需要，因为我们会使用prisma.record.create和prisma.record.update
 }
 
-function readSettings() {
-  return Setting.findOne({ where: { key: 'editMode' } })
-    .then(setting => {
-      if (setting) {
-        return { editMode: setting.value };
-      }
-      return DEFAULT_SETTINGS;
+async function readSettings() {
+  try {
+    const setting = await prisma.setting.findFirst({
+      where: { id: 1 }
     });
+    if (setting) {
+      return { editMode: setting.permissionMode };
+    }
+    return DEFAULT_SETTINGS;
+  } catch (error) {
+    console.error('读取设置失败:', error);
+    return DEFAULT_SETTINGS;
+  }
 }
 
-function saveSettings(settings) {
-  return Setting.update(
-    { value: settings.editMode },
-    { where: { key: 'editMode' } }
-  );
+async function saveSettings(settings) {
+  try {
+    await prisma.setting.update({
+      where: { id: 1 },
+      data: { permissionMode: settings.editMode }
+    });
+  } catch (error) {
+    console.error('保存设置失败:', error);
+  }
 }
 
 function parseOptionalJson(value, fallback = []) {
@@ -167,7 +196,7 @@ function validateRequiredFields(body) {
 function deleteUploadedFiles(imagePaths = []) {
   imagePaths.forEach((imagePath) => {
     const relativePath = imagePath.replace(/^\//, "");
-    const filePath = path.join(publicDir, relativePath);
+    const filePath = path.join(uploadDir, relativePath.replace(/^uploads\//, ""));
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
@@ -193,13 +222,11 @@ function buildAdminPayload() {
   };
 }
 
-function buildSiteConfigPayload() {
-  return readSettings()
-    .then(settings => {
-      return {
-        editMode: settings.editMode
-      };
-    });
+async function buildSiteConfigPayload() {
+  const settings = await readSettings();
+  return {
+    editMode: settings.editMode
+  };
 }
 
 function requireAdmin(req, res, next) {
@@ -211,63 +238,60 @@ function requireAdmin(req, res, next) {
   res.status(401).json({ success: false, message: text.unauthorized });
 }
 
-function requireCreatePermission(req, res, next) {
-  readSettings()
-    .then(({ editMode }) => {
-      if (editMode === EDIT_MODES.adminOnly && !isAdmin(req)) {
-        res.status(403).json({ success: false, message: text.createDenied });
-        return;
-      }
-      next();
-    })
-    .catch(() => {
-      next();
-    });
+async function requireCreatePermission(req, res, next) {
+  try {
+    const { editMode } = await readSettings();
+    if (editMode === EDIT_MODES.adminOnly && !isAdmin(req)) {
+      res.status(403).json({ success: false, message: text.createDenied });
+      return;
+    }
+    next();
+  } catch (error) {
+    next();
+  }
 }
 
-function requireModifyPermission(req, res, next) {
-  readSettings()
-    .then(({ editMode }) => {
-      if (editMode === EDIT_MODES.public) {
-        next();
-        return;
-      }
+async function requireModifyPermission(req, res, next) {
+  try {
+    const { editMode } = await readSettings();
+    if (editMode === EDIT_MODES.public) {
+      next();
+      return;
+    }
 
-      if (isAdmin(req)) {
-        next();
-        return;
-      }
+    if (isAdmin(req)) {
+      next();
+      return;
+    }
 
-      res.status(403).json({ success: false, message: text.modifyDenied });
-    })
-    .catch(() => {
-      res.status(403).json({ success: false, message: text.modifyDenied });
-    });
+    res.status(403).json({ success: false, message: text.modifyDenied });
+  } catch (error) {
+    res.status(403).json({ success: false, message: text.modifyDenied });
+  }
 }
 
-app.get("/api/admin/session", (req, res) => {
-  buildSiteConfigPayload()
-    .then(siteConfig => {
-      res.json({
-        success: true,
-        isAuthenticated: isAdmin(req),
-        username: req.session?.username || null,
-        config: buildAdminPayload(),
-        siteConfig
-      });
-    })
-    .catch(() => {
-      res.json({
-        success: true,
-        isAuthenticated: isAdmin(req),
-        username: req.session?.username || null,
-        config: buildAdminPayload(),
-        siteConfig: { editMode: DEFAULT_SETTINGS.editMode }
-      });
+app.get("/api/admin/session", async (req, res) => {
+  try {
+    const siteConfig = await buildSiteConfigPayload();
+    res.json({
+      success: true,
+      isAuthenticated: isAdmin(req),
+      username: req.session?.username || null,
+      config: buildAdminPayload(),
+      siteConfig
     });
+  } catch (error) {
+    res.json({
+      success: true,
+      isAuthenticated: isAdmin(req),
+      username: req.session?.username || null,
+      config: buildAdminPayload(),
+      siteConfig: { editMode: DEFAULT_SETTINGS.editMode }
+    });
+  }
 });
 
-app.post("/api/admin/login", (req, res) => {
+app.post("/api/admin/login", async (req, res) => {
   const username = String(req.body.username || "").trim();
   const password = String(req.body.password || "").trim();
 
@@ -278,23 +302,22 @@ app.post("/api/admin/login", (req, res) => {
   req.session.isAdmin = true;
   req.session.username = ADMIN_USERNAME;
 
-  buildSiteConfigPayload()
-    .then(siteConfig => {
-      res.json({
-        success: true,
-        message: text.loginSuccess,
-        username: ADMIN_USERNAME,
-        siteConfig
-      });
-    })
-    .catch(() => {
-      res.json({
-        success: true,
-        message: text.loginSuccess,
-        username: ADMIN_USERNAME,
-        siteConfig: { editMode: DEFAULT_SETTINGS.editMode }
-      });
+  try {
+    const siteConfig = await buildSiteConfigPayload();
+    res.json({
+      success: true,
+      message: text.loginSuccess,
+      username: ADMIN_USERNAME,
+      siteConfig
     });
+  } catch (error) {
+    res.json({
+      success: true,
+      message: text.loginSuccess,
+      username: ADMIN_USERNAME,
+      siteConfig: { editMode: DEFAULT_SETTINGS.editMode }
+    });
+  }
 });
 
 app.post("/api/admin/logout", (req, res) => {
@@ -303,23 +326,22 @@ app.post("/api/admin/logout", (req, res) => {
   });
 });
 
-app.get("/api/site-config", (req, res) => {
-  buildSiteConfigPayload()
-    .then(siteConfig => {
-      res.json({
-        success: true,
-        siteConfig
-      });
-    })
-    .catch(() => {
-      res.json({
-        success: true,
-        siteConfig: { editMode: DEFAULT_SETTINGS.editMode }
-      });
+app.get("/api/site-config", async (req, res) => {
+  try {
+    const siteConfig = await buildSiteConfigPayload();
+    res.json({
+      success: true,
+      siteConfig
     });
+  } catch (error) {
+    res.json({
+      success: true,
+      siteConfig: { editMode: DEFAULT_SETTINGS.editMode }
+    });
+  }
 });
 
-app.put("/api/admin/site-config", requireAdmin, (req, res) => {
+app.put("/api/admin/site-config", requireAdmin, async (req, res) => {
   const nextMode = String(req.body.editMode || "").trim();
 
   if (!Object.values(EDIT_MODES).includes(nextMode)) {
@@ -330,36 +352,32 @@ app.put("/api/admin/site-config", requireAdmin, (req, res) => {
     editMode: nextMode
   };
 
-  saveSettings(nextSettings)
-    .then(() => {
-      return buildSiteConfigPayload();
-    })
-    .then(siteConfig => {
-      res.json({
-        success: true,
-        siteConfig
-      });
-    })
-    .catch(() => {
-      res.json({
-        success: true,
-        siteConfig: { editMode: nextMode }
-      });
+  try {
+    await saveSettings(nextSettings);
+    const siteConfig = await buildSiteConfigPayload();
+    res.json({
+      success: true,
+      siteConfig
     });
+  } catch (error) {
+    res.json({
+      success: true,
+      siteConfig: { editMode: nextMode }
+    });
+  }
 });
 
-app.get("/api/records", (req, res) => {
-  readRecords()
-    .then(records => {
-      res.json({ success: true, records });
-    })
-    .catch(error => {
-      console.error("Get records failed:", error);
-      res.status(500).json({ success: false, message: text.saveFail });
-    });
+app.get("/api/records", async (req, res) => {
+  try {
+    const records = await readRecords();
+    res.json({ success: true, records });
+  } catch (error) {
+    console.error("Get records failed:", error);
+    res.status(500).json({ success: false, message: text.saveFail });
+  }
 });
 
-app.post("/api/records", requireCreatePermission, upload.array("images", 10), (req, res) => {
+app.post("/api/records", requireCreatePermission, upload.array("images", 10), async (req, res) => {
   try {
     if (!validateRequiredFields(req.body)) {
       return res.status(400).json({ success: false, message: text.missingFields });
@@ -392,21 +410,17 @@ app.post("/api/records", requireCreatePermission, upload.array("images", 10), (r
       updatedAt: now
     };
 
-    Record.create(newRecord)
-      .then(record => {
-        res.status(201).json({ success: true, message: text.saveSuccess, record });
-      })
-      .catch(error => {
-        console.error("Create record failed:", error);
-        res.status(500).json({ success: false, message: text.saveFail });
-      });
+    const record = await prisma.record.create({
+      data: newRecord
+    });
+    res.status(201).json({ success: true, message: text.saveSuccess, record });
   } catch (error) {
     console.error("Create record failed:", error);
     res.status(500).json({ success: false, message: text.saveFail });
   }
 });
 
-app.put("/api/records/:id", requireModifyPermission, upload.array("images", 10), (req, res) => {
+app.put("/api/records/:id", requireModifyPermission, upload.array("images", 10), async (req, res) => {
   try {
     if (!validateRequiredFields(req.body)) {
       return res.status(400).json({ success: false, message: text.missingFields });
@@ -418,72 +432,69 @@ app.put("/api/records/:id", requireModifyPermission, upload.array("images", 10),
       return res.status(400).json({ success: false, message: text.invalidCoordinates });
     }
 
-    Record.findByPk(req.params.id)
-      .then(currentRecord => {
-        if (!currentRecord) {
-          deleteUploadedFiles((req.files || []).map((file) => `/uploads/${file.filename}`));
-          return res.status(404).json({ success: false, message: text.notFoundEdit });
-        }
+    const currentRecord = await prisma.record.findUnique({
+      where: { id: req.params.id }
+    });
+    
+    if (!currentRecord) {
+      deleteUploadedFiles((req.files || []).map((file) => `/uploads/${file.filename}`));
+      return res.status(404).json({ success: false, message: text.notFoundEdit });
+    }
 
-        const existingImages = parseOptionalJson(req.body.existingImages, currentRecord.images);
-        const newImages = (req.files || []).map((file) => `/uploads/${file.filename}`);
-        const nextImages = [...existingImages, ...newImages];
+    const existingImages = parseOptionalJson(req.body.existingImages, currentRecord.images);
+    const newImages = (req.files || []).map((file) => `/uploads/${file.filename}`);
+    const nextImages = [...existingImages, ...newImages];
 
-        if (nextImages.length === 0) {
-          deleteUploadedFiles(newImages);
-          return res.status(400).json({ success: false, message: text.noImageLeft });
-        }
+    if (nextImages.length === 0) {
+      deleteUploadedFiles(newImages);
+      return res.status(400).json({ success: false, message: text.noImageLeft });
+    }
 
-        const removedImages = currentRecord.images.filter((imagePath) => !existingImages.includes(imagePath));
-        deleteUploadedFiles(removedImages);
+    const removedImages = currentRecord.images.filter((imagePath) => !existingImages.includes(imagePath));
+    deleteUploadedFiles(removedImages);
 
-        const updatedRecord = {
-          locationId: resolveLocationId(req.body, currentRecord),
-          title: req.body.title.trim(),
-          species: req.body.species.trim(),
-          author: req.body.author.trim(),
-          shotDate: req.body.shotDate.trim(),
-          location: req.body.location.trim(),
-          description: req.body.description.trim(),
-          coordinates: { x, y },
-          images: nextImages,
-          updatedAt: new Date().toISOString()
-        };
+    const updatedRecord = {
+      locationId: resolveLocationId(req.body, currentRecord),
+      title: req.body.title.trim(),
+      species: req.body.species.trim(),
+      author: req.body.author.trim(),
+      shotDate: req.body.shotDate.trim(),
+      location: req.body.location.trim(),
+      description: req.body.description.trim(),
+      coordinates: { x, y },
+      images: nextImages,
+      updatedAt: new Date().toISOString()
+    };
 
-        return currentRecord.update(updatedRecord)
-          .then(updated => {
-            res.json({ success: true, message: text.updateSuccess, record: updated });
-          });
-      })
-      .catch(error => {
-        console.error("Update record failed:", error);
-        res.status(500).json({ success: false, message: text.updateFail });
-      });
+    const updated = await prisma.record.update({
+      where: { id: req.params.id },
+      data: updatedRecord
+    });
+    
+    res.json({ success: true, message: text.updateSuccess, record: updated });
   } catch (error) {
     console.error("Update record failed:", error);
     res.status(500).json({ success: false, message: text.updateFail });
   }
 });
 
-app.delete("/api/records/:id", requireModifyPermission, (req, res) => {
+app.delete("/api/records/:id", requireModifyPermission, async (req, res) => {
   try {
-    Record.findByPk(req.params.id)
-      .then(deletedRecord => {
-        if (!deletedRecord) {
-          return res.status(404).json({ success: false, message: text.notFoundDelete });
-        }
+    const deletedRecord = await prisma.record.findUnique({
+      where: { id: req.params.id }
+    });
+    
+    if (!deletedRecord) {
+      return res.status(404).json({ success: false, message: text.notFoundDelete });
+    }
 
-        const images = deletedRecord.images;
-        return deletedRecord.destroy()
-          .then(() => {
-            deleteUploadedFiles(images);
-            res.json({ success: true, message: text.deleteSuccess });
-          });
-      })
-      .catch(error => {
-        console.error("Delete record failed:", error);
-        res.status(500).json({ success: false, message: text.deleteFail });
-      });
+    const images = deletedRecord.images;
+    await prisma.record.delete({
+      where: { id: req.params.id }
+    });
+    
+    deleteUploadedFiles(images);
+    res.json({ success: true, message: text.deleteSuccess });
   } catch (error) {
     console.error("Delete record failed:", error);
     res.status(500).json({ success: false, message: text.deleteFail });

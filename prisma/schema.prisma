@@ -1,0 +1,34 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Record {
+  id          String   @id @default(cuid())
+  locationId  String
+  title       String
+  species     String
+  author      String
+  shotDate    String
+  location    String
+  description String
+  images      String
+  createdAt   String
+  updatedAt   String
+
+  @@map("records")
+}
+
+model Setting {
+  id            Int     @id @default(autoincrement())
+  permissionMode String  @default("open")
+
+  @@map("settings")
+}
