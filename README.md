@@ -9,11 +9,13 @@
 - 支持上传花卉标题、品种、记录人、拍摄时间、地点、描述和多张图片
 - 所有记录保存在 SQLite 数据库中
 - 网站配置保存在数据库中
-- 上传图片保存在 `uploads/` 目录
+- 上传图片保存在 `data/uploads/` 目录，缩略图保存在 `data/uploads/thumbnails/`
 - 同一地点多条记录会归档到同一个地点详情中
 - 支持关键词搜索、地点筛选、品种筛选
 - 支持管理员登录
 - 支持三档权限模式切换
+- **图片缩略图功能**：自动生成缩略图，点击可查看原图
+- **图片查看器**：支持缩略图预览和原图查看
 
 ## 新增字段说明
 
@@ -73,6 +75,7 @@
 - **SQLite**：轻量级数据库
 - **express-session**：会话管理
 - **multer**：文件上传处理
+- **sharp**：图片处理（生成缩略图）
 - **dotenv**：环境变量管理
 
 ### 部署
@@ -101,7 +104,8 @@ node server.js
 当前版本使用：
 
 - **SQLite 数据库**：保存花卉记录和网站配置
-- **uploads/ 目录**：保存图片文件
+- **data/uploads/ 目录**：保存图片文件
+- **data/uploads/thumbnails/ 目录**：保存缩略图
 
 使用 Prisma ORM 进行数据库操作，提供以下优势：
 
@@ -109,6 +113,18 @@ node server.js
 - 自动生成数据库迁移
 - 支持复杂查询
 - 易于维护和扩展
+
+### 图片存储格式
+
+图片数据以 JSON 格式存储，包含原图和缩略图路径：
+```json
+[
+  {
+    "original": "/uploads/xxx.jpg",
+    "thumbnail": "/uploads/thumbnails/xxx.jpg"
+  }
+]
+```
 
 ## 地点归档机制
 
@@ -135,9 +151,10 @@ MAP/
 │  ├─ app.js
 │  ├─ index.html
 │  └─ style.css
-├─ uploads/                # 上传的图片文件
-├─ data/                  # 数据库文件目录
-│  └─ database.db         # SQLite 数据库
+├─ data/                  # 数据目录（数据库和图片）
+│  ├─ database.db         # SQLite 数据库
+│  └─ uploads/            # 上传的图片文件
+│     └─ thumbnails/      # 缩略图
 ├─ .env                   # 环境变量配置
 ├─ .gitignore
 ├─ package.json
@@ -280,8 +297,8 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your-password
 SESSION_SECRET=your-random-secret
 
-# 上传目录
-UPLOAD_DIR="./uploads"
+# 上传目录（生产环境建议使用绝对路径）
+UPLOAD_DIR="./data/uploads"
 ```
 
 ## 数据库模型
@@ -298,7 +315,8 @@ model Record {
   shotDate    String
   location    String
   description String
-  images      String
+  images      String       # JSON格式：[{"original": "/uploads/xxx.jpg", "thumbnail": "/uploads/thumbnails/xxx.jpg"}]
+  coordinates String       # JSON格式：{"x": 123.45, "y": 67.89}
   createdAt   String
   updatedAt   String
 

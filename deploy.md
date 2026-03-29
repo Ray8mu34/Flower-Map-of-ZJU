@@ -287,3 +287,67 @@ pm2 logs flower-map
 4. **防火墙**：开放80/443端口，如需直接访问3001端口也需开放
 5. **Prisma迁移**：每次更新代码后记得运行 `npx prisma migrate deploy`
 6. **数据库路径**：确保 `.env` 中的 `DATABASE_URL` 指向正确的数据库文件路径
+
+## 七、部署经验心得
+
+### 1. 源码与数据分离的重要性
+
+本项目采用 `/var/apps/flower-map/` 存放源码，`/var/data/flower-map/` 存放数据的架构。这样做的好处：
+- 更新代码时不会影响数据
+- 数据备份更简单（只需备份数据目录）
+- 符合生产环境最佳实践
+
+### 2. 常见部署问题及解决
+
+**问题1：数据库表不存在**
+```
+The table `main.records` does not exist
+```
+**解决**：运行 `npx prisma migrate deploy` 创建数据库表
+
+**问题2：权限不足**
+```
+EACCES: permission denied, open '/var/data/...'
+```
+**解决**：
+```bash
+sudo chown -R ubuntu:ubuntu /var/data/flower-map/
+sudo chmod -R 755 /var/data/flower-map/
+```
+
+**问题3：图片无法显示**
+- 检查 Nginx 配置中的 `alias` 路径是否正确
+- 确保路径指向 `/var/data/flower-map/data/uploads/`
+- 注意路径末尾的斜杠 `/` 不能省略
+
+**问题4：环境变量不生效**
+- 检查 `.env` 文件路径是否正确
+- 确保文件格式为 UTF-8
+- 重启 PM2 服务后生效
+
+### 3. 关键配置检查清单
+
+部署完成后，请检查以下配置：
+
+- [ ] `.env` 中的 `DATABASE_URL` 使用绝对路径
+- [ ] `.env` 中的 `UPLOAD_DIR` 使用绝对路径
+- [ ] Nginx 配置中的 `alias` 路径正确
+- [ ] 数据目录权限设置为 `ubuntu:ubuntu`
+- [ ] 数据库迁移已执行
+- [ ] PM2 服务正常运行
+- [ ] Nginx 已重载配置
+
+### 4. 性能优化建议
+
+- 图片上传后自动生成缩略图，减少带宽消耗
+- 使用 Nginx 直接服务静态文件，减轻 Node.js 负担
+- 设置浏览器缓存（30天）提高加载速度
+- 定期清理旧的缩略图和临时文件
+
+### 5. 安全建议
+
+- 生产环境务必修改默认管理员密码
+- 设置复杂的 `SESSION_SECRET`（建议32位以上随机字符串）
+- 定期备份数据目录
+- 限制服务器 SSH 访问，使用密钥认证
+- 考虑启用 HTTPS（配置 SSL 证书）
