@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require("express");
 const session = require("express-session");
 const multer = require("multer");
@@ -5,14 +6,16 @@ const fs = require("fs");
 const path = require("path");
 const { randomUUID } = require("crypto");
 
+// 导入数据库模型
+const { Record, Setting } = require('./models');
+
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3001;
 
 const publicDir = path.join(__dirname, "public");
-const uploadDir = path.join(publicDir, "uploads");
+// 调整上传目录，优先从环境变量读取，默认放在项目根目录
+const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, "uploads");
 const dataDir = path.join(__dirname, "data");
-const dataFile = path.join(dataDir, "data.json");
-const settingsFile = path.join(dataDir, "settings.json");
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-this-password";
@@ -31,13 +34,11 @@ const DEFAULT_SETTINGS = {
 fs.mkdirSync(uploadDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
 
-if (!fs.existsSync(dataFile)) {
-  fs.writeFileSync(dataFile, "[]", "utf8");
-}
-
-if (!fs.existsSync(settingsFile)) {
-  fs.writeFileSync(settingsFile, JSON.stringify(DEFAULT_SETTINGS, null, 2), "utf8");
-}
+// 初始化默认设置
+Setting.findOrCreate({
+  where: { key: 'editMode' },
+  defaults: { value: DEFAULT_SETTINGS.editMode }
+});
 
 const text = {
   invalidFile: "只允许上传常见图片格式。",
@@ -98,6 +99,8 @@ app.use(
   })
 );
 app.use(express.static(publicDir));
+// 添加uploads目录的静态路由
+app.use('/uploads', express.static(uploadDir));
 
 function normalizeText(value = "") {
   return String(value).trim().toLowerCase();
@@ -115,91 +118,29 @@ function isAdmin(req) {
   return Boolean(req.session?.isAdmin);
 }
 
-function normalizeRecords(records) {
-  const locationIdMap = new Map();
-  let changed = false;
-
-  const nextRecords = records.map((record) => {
-    const normalizedLocation = normalizeText(record.location);
-    let locationId = record.locationId;
-
-    if (!locationId) {
-      if (locationIdMap.has(normalizedLocation)) {
-        locationId = locationIdMap.get(normalizedLocation);
-      } else {
-        locationId = randomUUID();
-        locationIdMap.set(normalizedLocation, locationId);
-      }
-      changed = true;
-    } else if (!locationIdMap.has(normalizedLocation)) {
-      locationIdMap.set(normalizedLocation, locationId);
-    }
-
-    return {
-      ...record,
-      locationId
-    };
-  });
-
-  return { records: nextRecords, changed };
-}
-
-function readJsonFile(filePath, fallback) {
-  try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(raw);
-  } catch (error) {
-    return fallback;
-  }
-}
-
-function writeJsonFile(filePath, value) {
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), "utf8");
-}
-
-function readRawRecords() {
-  const parsed = readJsonFile(dataFile, []);
-  return Array.isArray(parsed) ? parsed : [];
+function readRecords() {
+  return Record.findAll();
 }
 
 function saveRecords(records) {
-  writeJsonFile(dataFile, records);
-}
-
-function readRecords() {
-  const rawRecords = readRawRecords();
-  const normalized = normalizeRecords(rawRecords);
-
-  if (normalized.changed) {
-    saveRecords(normalized.records);
-  }
-
-  return normalized.records;
-}
-
-function normalizeSettings(settings = {}) {
-  const editMode = Object.values(EDIT_MODES).includes(settings.editMode)
-    ? settings.editMode
-    : DEFAULT_SETTINGS.editMode;
-
-  return {
-    editMode
-  };
+  // 这个函数不再需要，因为我们会使用Record.create和Record.update
 }
 
 function readSettings() {
-  const parsed = readJsonFile(settingsFile, DEFAULT_SETTINGS);
-  const normalized = normalizeSettings(parsed);
-
-  if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
-    writeJsonFile(settingsFile, normalized);
-  }
-
-  return normalized;
+  return Setting.findOne({ where: { key: 'editMode' } })
+    .then(setting => {
+      if (setting) {
+        return { editMode: setting.value };
+      }
+      return DEFAULT_SETTINGS;
+    });
 }
 
 function saveSettings(settings) {
-  writeJsonFile(settingsFile, normalizeSettings(settings));
+  return Setting.update(
+    { value: settings.editMode },
+    { where: { key: 'editMode' } }
+  );
 }
 
 function parseOptionalJson(value, fallback = []) {
@@ -253,10 +194,12 @@ function buildAdminPayload() {
 }
 
 function buildSiteConfigPayload() {
-  const settings = readSettings();
-  return {
-    editMode: settings.editMode
-  };
+  return readSettings()
+    .then(settings => {
+      return {
+        editMode: settings.editMode
+      };
+    });
 }
 
 function requireAdmin(req, res, next) {
@@ -269,40 +212,59 @@ function requireAdmin(req, res, next) {
 }
 
 function requireCreatePermission(req, res, next) {
-  const { editMode } = readSettings();
-
-  if (editMode === EDIT_MODES.adminOnly && !isAdmin(req)) {
-    res.status(403).json({ success: false, message: text.createDenied });
-    return;
-  }
-
-  next();
+  readSettings()
+    .then(({ editMode }) => {
+      if (editMode === EDIT_MODES.adminOnly && !isAdmin(req)) {
+        res.status(403).json({ success: false, message: text.createDenied });
+        return;
+      }
+      next();
+    })
+    .catch(() => {
+      next();
+    });
 }
 
 function requireModifyPermission(req, res, next) {
-  const { editMode } = readSettings();
+  readSettings()
+    .then(({ editMode }) => {
+      if (editMode === EDIT_MODES.public) {
+        next();
+        return;
+      }
 
-  if (editMode === EDIT_MODES.public) {
-    next();
-    return;
-  }
+      if (isAdmin(req)) {
+        next();
+        return;
+      }
 
-  if (isAdmin(req)) {
-    next();
-    return;
-  }
-
-  res.status(403).json({ success: false, message: text.modifyDenied });
+      res.status(403).json({ success: false, message: text.modifyDenied });
+    })
+    .catch(() => {
+      res.status(403).json({ success: false, message: text.modifyDenied });
+    });
 }
 
 app.get("/api/admin/session", (req, res) => {
-  res.json({
-    success: true,
-    isAuthenticated: isAdmin(req),
-    username: req.session?.username || null,
-    config: buildAdminPayload(),
-    siteConfig: buildSiteConfigPayload()
-  });
+  buildSiteConfigPayload()
+    .then(siteConfig => {
+      res.json({
+        success: true,
+        isAuthenticated: isAdmin(req),
+        username: req.session?.username || null,
+        config: buildAdminPayload(),
+        siteConfig
+      });
+    })
+    .catch(() => {
+      res.json({
+        success: true,
+        isAuthenticated: isAdmin(req),
+        username: req.session?.username || null,
+        config: buildAdminPayload(),
+        siteConfig: { editMode: DEFAULT_SETTINGS.editMode }
+      });
+    });
 });
 
 app.post("/api/admin/login", (req, res) => {
@@ -316,12 +278,23 @@ app.post("/api/admin/login", (req, res) => {
   req.session.isAdmin = true;
   req.session.username = ADMIN_USERNAME;
 
-  res.json({
-    success: true,
-    message: text.loginSuccess,
-    username: ADMIN_USERNAME,
-    siteConfig: buildSiteConfigPayload()
-  });
+  buildSiteConfigPayload()
+    .then(siteConfig => {
+      res.json({
+        success: true,
+        message: text.loginSuccess,
+        username: ADMIN_USERNAME,
+        siteConfig
+      });
+    })
+    .catch(() => {
+      res.json({
+        success: true,
+        message: text.loginSuccess,
+        username: ADMIN_USERNAME,
+        siteConfig: { editMode: DEFAULT_SETTINGS.editMode }
+      });
+    });
 });
 
 app.post("/api/admin/logout", (req, res) => {
@@ -331,10 +304,19 @@ app.post("/api/admin/logout", (req, res) => {
 });
 
 app.get("/api/site-config", (req, res) => {
-  res.json({
-    success: true,
-    siteConfig: buildSiteConfigPayload()
-  });
+  buildSiteConfigPayload()
+    .then(siteConfig => {
+      res.json({
+        success: true,
+        siteConfig
+      });
+    })
+    .catch(() => {
+      res.json({
+        success: true,
+        siteConfig: { editMode: DEFAULT_SETTINGS.editMode }
+      });
+    });
 });
 
 app.put("/api/admin/site-config", requireAdmin, (req, res) => {
@@ -345,20 +327,36 @@ app.put("/api/admin/site-config", requireAdmin, (req, res) => {
   }
 
   const nextSettings = {
-    ...readSettings(),
     editMode: nextMode
   };
 
-  saveSettings(nextSettings);
-
-  res.json({
-    success: true,
-    siteConfig: buildSiteConfigPayload()
-  });
+  saveSettings(nextSettings)
+    .then(() => {
+      return buildSiteConfigPayload();
+    })
+    .then(siteConfig => {
+      res.json({
+        success: true,
+        siteConfig
+      });
+    })
+    .catch(() => {
+      res.json({
+        success: true,
+        siteConfig: { editMode: nextMode }
+      });
+    });
 });
 
 app.get("/api/records", (req, res) => {
-  res.json({ success: true, records: readRecords() });
+  readRecords()
+    .then(records => {
+      res.json({ success: true, records });
+    })
+    .catch(error => {
+      console.error("Get records failed:", error);
+      res.status(500).json({ success: false, message: text.saveFail });
+    });
 });
 
 app.post("/api/records", requireCreatePermission, upload.array("images", 10), (req, res) => {
@@ -378,7 +376,6 @@ app.post("/api/records", requireCreatePermission, upload.array("images", 10), (r
       return res.status(400).json({ success: false, message: text.createNeedImage });
     }
 
-    const records = readRecords();
     const now = new Date().toISOString();
     const newRecord = {
       id: randomUUID(),
@@ -395,9 +392,14 @@ app.post("/api/records", requireCreatePermission, upload.array("images", 10), (r
       updatedAt: now
     };
 
-    records.push(newRecord);
-    saveRecords(records);
-    res.status(201).json({ success: true, message: text.saveSuccess, record: newRecord });
+    Record.create(newRecord)
+      .then(record => {
+        res.status(201).json({ success: true, message: text.saveSuccess, record });
+      })
+      .catch(error => {
+        console.error("Create record failed:", error);
+        res.status(500).json({ success: false, message: text.saveFail });
+      });
   } catch (error) {
     console.error("Create record failed:", error);
     res.status(500).json({ success: false, message: text.saveFail });
@@ -416,43 +418,47 @@ app.put("/api/records/:id", requireModifyPermission, upload.array("images", 10),
       return res.status(400).json({ success: false, message: text.invalidCoordinates });
     }
 
-    const records = readRecords();
-    const recordIndex = records.findIndex((item) => item.id === req.params.id);
-    if (recordIndex === -1) {
-      deleteUploadedFiles((req.files || []).map((file) => `/uploads/${file.filename}`));
-      return res.status(404).json({ success: false, message: text.notFoundEdit });
-    }
+    Record.findByPk(req.params.id)
+      .then(currentRecord => {
+        if (!currentRecord) {
+          deleteUploadedFiles((req.files || []).map((file) => `/uploads/${file.filename}`));
+          return res.status(404).json({ success: false, message: text.notFoundEdit });
+        }
 
-    const currentRecord = records[recordIndex];
-    const existingImages = parseOptionalJson(req.body.existingImages, currentRecord.images);
-    const newImages = (req.files || []).map((file) => `/uploads/${file.filename}`);
-    const nextImages = [...existingImages, ...newImages];
+        const existingImages = parseOptionalJson(req.body.existingImages, currentRecord.images);
+        const newImages = (req.files || []).map((file) => `/uploads/${file.filename}`);
+        const nextImages = [...existingImages, ...newImages];
 
-    if (nextImages.length === 0) {
-      deleteUploadedFiles(newImages);
-      return res.status(400).json({ success: false, message: text.noImageLeft });
-    }
+        if (nextImages.length === 0) {
+          deleteUploadedFiles(newImages);
+          return res.status(400).json({ success: false, message: text.noImageLeft });
+        }
 
-    const removedImages = currentRecord.images.filter((imagePath) => !existingImages.includes(imagePath));
-    deleteUploadedFiles(removedImages);
+        const removedImages = currentRecord.images.filter((imagePath) => !existingImages.includes(imagePath));
+        deleteUploadedFiles(removedImages);
 
-    const updatedRecord = {
-      ...currentRecord,
-      locationId: resolveLocationId(req.body, currentRecord),
-      title: req.body.title.trim(),
-      species: req.body.species.trim(),
-      author: req.body.author.trim(),
-      shotDate: req.body.shotDate.trim(),
-      location: req.body.location.trim(),
-      description: req.body.description.trim(),
-      coordinates: { x, y },
-      images: nextImages,
-      updatedAt: new Date().toISOString()
-    };
+        const updatedRecord = {
+          locationId: resolveLocationId(req.body, currentRecord),
+          title: req.body.title.trim(),
+          species: req.body.species.trim(),
+          author: req.body.author.trim(),
+          shotDate: req.body.shotDate.trim(),
+          location: req.body.location.trim(),
+          description: req.body.description.trim(),
+          coordinates: { x, y },
+          images: nextImages,
+          updatedAt: new Date().toISOString()
+        };
 
-    records[recordIndex] = updatedRecord;
-    saveRecords(records);
-    res.json({ success: true, message: text.updateSuccess, record: updatedRecord });
+        return currentRecord.update(updatedRecord)
+          .then(updated => {
+            res.json({ success: true, message: text.updateSuccess, record: updated });
+          });
+      })
+      .catch(error => {
+        console.error("Update record failed:", error);
+        res.status(500).json({ success: false, message: text.updateFail });
+      });
   } catch (error) {
     console.error("Update record failed:", error);
     res.status(500).json({ success: false, message: text.updateFail });
@@ -461,16 +467,23 @@ app.put("/api/records/:id", requireModifyPermission, upload.array("images", 10),
 
 app.delete("/api/records/:id", requireModifyPermission, (req, res) => {
   try {
-    const records = readRecords();
-    const recordIndex = records.findIndex((item) => item.id === req.params.id);
-    if (recordIndex === -1) {
-      return res.status(404).json({ success: false, message: text.notFoundDelete });
-    }
+    Record.findByPk(req.params.id)
+      .then(deletedRecord => {
+        if (!deletedRecord) {
+          return res.status(404).json({ success: false, message: text.notFoundDelete });
+        }
 
-    const [deletedRecord] = records.splice(recordIndex, 1);
-    deleteUploadedFiles(deletedRecord.images);
-    saveRecords(records);
-    res.json({ success: true, message: text.deleteSuccess });
+        const images = deletedRecord.images;
+        return deletedRecord.destroy()
+          .then(() => {
+            deleteUploadedFiles(images);
+            res.json({ success: true, message: text.deleteSuccess });
+          });
+      })
+      .catch(error => {
+        console.error("Delete record failed:", error);
+        res.status(500).json({ success: false, message: text.deleteFail });
+      });
   } catch (error) {
     console.error("Delete record failed:", error);
     res.status(500).json({ success: false, message: text.deleteFail });

@@ -7,6 +7,11 @@ pnpm-debug.log*
 .env
 .env.*
 
+# 数据目录（生产环境数据，不提交到git）
+data/
+uploads/
+
+# 旧的public/uploads目录（已废弃）
 public/uploads/
 
 dist/
