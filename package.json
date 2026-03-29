@@ -7,14 +7,12 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.2",
     "dotenv": "^17.3.1",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
     "multer": "^2.0.2",
-    "@prisma/client": "^6.19.2",
+    "prisma": "^6.19.2",
     "sharp": "^0.34.5"
-  },
-  "devDependencies": {
-    "prisma": "^6.19.2"
   }
 }

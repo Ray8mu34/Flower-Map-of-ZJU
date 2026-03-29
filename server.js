@@ -446,6 +446,7 @@ app.post("/api/records", requireCreatePermission, upload.array("images", 10), as
       location: req.body.location.trim(),
       description: req.body.description.trim(),
       images: JSON.stringify(processedImages),
+      coordinates: JSON.stringify({ x, y }),
       createdAt: now,
       updatedAt: now
     };
@@ -507,7 +508,7 @@ app.put("/api/records/:id", requireModifyPermission, upload.array("images", 10),
       shotDate: req.body.shotDate.trim(),
       location: req.body.location.trim(),
       description: req.body.description.trim(),
-      coordinates: { x, y },
+      coordinates: JSON.stringify({ x, y }),
       images: JSON.stringify(nextImages),
       updatedAt: new Date().toISOString()
     };

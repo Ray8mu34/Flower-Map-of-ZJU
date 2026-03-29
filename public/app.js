@@ -397,9 +397,16 @@ function fillFormFromRecord(record) {
   document.getElementById("location").value = record.location;
   document.getElementById("description").value = record.description;
 
-  const latlng = L.latLng(record.coordinates.y, record.coordinates.x);
-  updateCoordinateFields(latlng);
-  createTemporaryMarker(latlng);
+  try {
+    const coordinates = typeof record.coordinates === 'string' ? JSON.parse(record.coordinates) : record.coordinates;
+    if (coordinates && coordinates.x && coordinates.y) {
+      const latlng = L.latLng(coordinates.y, coordinates.x);
+      updateCoordinateFields(latlng);
+      createTemporaryMarker(latlng);
+    }
+  } catch (e) {
+    console.error('解析坐标失败:', e);
+  }
 }
 
 function closeModal() {
@@ -510,12 +517,22 @@ function buildLocationGroups(sourceRecords) {
       return;
     }
 
+    let coordinates = { x: 0, y: 0 };
+    try {
+      coordinates = typeof record.coordinates === 'string' ? JSON.parse(record.coordinates) : record.coordinates;
+      if (!coordinates || typeof coordinates !== 'object') {
+        coordinates = { x: 0, y: 0 };
+      }
+    } catch (e) {
+      coordinates = { x: 0, y: 0 };
+    }
+
     if (!groupMap.has(key)) {
       groupMap.set(key, {
         key,
         locationId: record.locationId || key,
         location: record.location,
-        coordinates: { ...record.coordinates },
+        coordinates: coordinates,
         records: []
       });
     }
@@ -528,7 +545,16 @@ function buildLocationGroups(sourceRecords) {
     group.latestRecord = group.records[0];
     group.locationId = group.latestRecord.locationId || group.locationId;
     group.location = group.latestRecord.location;
-    group.coordinates = { ...group.latestRecord.coordinates };
+    let latestCoordinates = { x: 0, y: 0 };
+    try {
+      latestCoordinates = typeof group.latestRecord.coordinates === 'string' ? JSON.parse(group.latestRecord.coordinates) : group.latestRecord.coordinates;
+      if (!latestCoordinates || typeof latestCoordinates !== 'object') {
+        latestCoordinates = { x: 0, y: 0 };
+      }
+    } catch (e) {
+      latestCoordinates = { x: 0, y: 0 };
+    }
+    group.coordinates = latestCoordinates;
     return group;
   });
 }
@@ -689,7 +715,14 @@ function openLocationDetail(location) {
 }
 
 function createPopupContent(group) {
-  const previewImages = group.records.flatMap((record) => record.images).slice(0, 3);
+  const previewImages = group.records.flatMap((record) => {
+    try {
+      const images = typeof record.images === 'string' ? JSON.parse(record.images) : record.images;
+      return images.map(img => img.thumbnail || img.original || '');
+    } catch (e) {
+      return [];
+    }
+  }).filter(img => img).slice(0, 3);
   const galleryHtml = previewImages.length
     ? previewImages
         .map((imagePath, index) => {

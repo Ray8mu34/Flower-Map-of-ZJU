@@ -20,6 +20,7 @@ model Record {
   location    String
   description String
   images      String
+  coordinates String
   createdAt   String
   updatedAt   String
 
