@@ -145,9 +145,9 @@ server {
 
     client_max_body_size 64M;
 
-    # 上传文件直接服务
+    # 上传文件直接服务（数据目录与源码分离）
     location /uploads/ {
-        alias /var/data/flower-map/uploads/;
+        alias /var/data/flower-map/data/uploads/;
         expires 30d;
         add_header Cache-Control "public, immutable";
         autoindex off;
@@ -182,14 +182,32 @@ sudo systemctl reload nginx
 
 **访问地址**：`http://flower.zjuaaa.cn`
 
-## 三、后续更新步骤
+## 三、目录结构说明
+
+项目采用**源码和数据分离**的架构：
+
+```
+/var/apps/flower-map/          # 源码目录
+├── server.js                  # 主程序
+├── public/                    # 前端文件
+├── prisma/                    # 数据库配置
+└── ...
+
+/var/data/flower-map/          # 数据目录（与源码分离）
+├── data/
+│   ├── database.db            # SQLite数据库
+│   └── uploads/               # 上传的图片文件
+│       └── thumbnails/        # 缩略图
+```
+
+## 四、后续更新步骤
 
 ### 1. 备份数据
 
 ```bash
 # 备份数据库和上传文件
 cp /var/data/flower-map/data/database.db /var/data/flower-map/data/database.db.bak
-cp -r /var/data/flower-map/uploads /var/data/flower-map/uploads.bak
+cp -r /var/data/flower-map/data/uploads /var/data/flower-map/data/uploads.bak
 ```
 
 ### 2. 更新源码
@@ -199,6 +217,8 @@ cd /var/apps/flower-map
 
 # 拉取最新代码
 git pull origin main
+# 网不好就用ssh连接
+
 
 # 安装新依赖（如有）
 npm install --production
