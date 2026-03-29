@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>浙江大学紫金港校区花卉地图</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <div class="map-toolbar">
+      <div class="admin-toolbar">
+        <div class="admin-toolbar-top">
+          <div id="adminStatus" class="admin-status">游客模式</div>
+          <button id="adminActionButton" class="secondary-button" type="button">管理员登录</button>
+        </div>
+
+        <div class="admin-mode-card">
+          <div class="admin-mode-row">
+            <span class="admin-mode-label">当前共建模式</span>
+            <span id="editModeBadge" class="edit-mode-badge">仅开放新增</span>
+          </div>
+          <p id="editModeHint" class="admin-mode-hint">所有人都可以新增记录，但编辑和删除需要管理员。</p>
+
+          <div id="adminModeControls" class="admin-mode-controls hidden">
+            <label class="admin-mode-select-wrap" for="editModeSelect">
+              <span>切换模式</span>
+              <select id="editModeSelect" class="filter-input">
+                <option value="public">开放共建</option>
+                <option value="public_add_only">仅开放新增</option>
+                <option value="admin_only">仅管理员编辑</option>
+              </select>
+            </label>
+            <button id="saveEditModeButton" class="primary-button" type="button">更新模式</button>
+          </div>
+        </div>
+      </div>
+
+      <button id="addRecordButton" class="primary-button" type="button">添加花卉记录</button>
+
+      <aside class="info-panel">
+        <button id="panelToggleButton" class="panel-toggle" type="button" aria-expanded="true">
+          花卉品种统计
+        </button>
+        <div class="panel-body" id="panelBody">
+          <p class="panel-tip">
+            可以使用模糊搜索、地点关键词和品种统计联动筛选，快速找到想看的记录。
+          </p>
+
+          <div class="filter-group">
+            <label class="filter-label" for="searchInput">综合搜索</label>
+            <input
+              id="searchInput"
+              class="filter-input"
+              type="text"
+              placeholder="搜索标题、品种、地点或描述"
+            />
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label" for="locationFilterInput">地点关键词</label>
+            <input
+              id="locationFilterInput"
+              class="filter-input"
+              type="text"
+              placeholder="例如 启真湖、东区、图书馆"
+            />
+          </div>
+
+          <button id="clearFiltersButton" class="secondary-button filter-reset-button" type="button">
+            清空筛选
+          </button>
+
+          <div class="stats-summary">
+            <span id="recordCount">0</span>
+            <span>条筛选结果</span>
+          </div>
+          <ul id="speciesList" class="species-list"></ul>
+        </div>
+      </aside>
+    </div>
+
+    <div id="statusMessage" class="status-message" aria-live="polite"></div>
+
+    <div id="adminModalOverlay" class="modal-overlay hidden">
+      <div class="modal-card admin-modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="modal-kicker">管理员入口</p>
+            <h2>管理员登录</h2>
+          </div>
+          <button id="closeAdminModalButton" class="icon-button" type="button" aria-label="关闭管理员登录窗口">
+            ×
+          </button>
+        </div>
+
+        <form id="adminLoginForm" class="record-form">
+          <label>
+            管理员账号
+            <input id="adminUsername" name="username" type="text" placeholder="请输入管理员账号" required />
+          </label>
+
+          <label>
+            管理员密码
+            <input
+              id="adminPassword"
+              name="password"
+              type="password"
+              placeholder="请输入管理员密码"
+              required
+            />
+          </label>
+
+          <div class="form-actions">
+            <button id="cancelAdminButton" class="secondary-button" type="button">取消</button>
+            <button id="submitAdminButton" class="primary-button" type="submit">登录</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="modalOverlay" class="modal-overlay hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="modal-kicker" id="modalKicker">新建地点记录</p>
+            <h2 id="modalTitle">填写花卉信息</h2>
+          </div>
+          <button id="closeModalButton" class="icon-button" type="button" aria-label="关闭表单窗口">
+            ×
+          </button>
+        </div>
+
+        <form id="recordForm" class="record-form">
+          <input type="hidden" id="recordId" name="recordId" />
+          <input type="hidden" id="locationId" name="locationId" />
+          <input type="hidden" id="coordinateX" name="x" />
+          <input type="hidden" id="coordinateY" name="y" />
+
+          <label>
+            花卉标题
+            <input id="title" name="title" type="text" placeholder="例如 东五旁盛开的玉兰" required />
+          </label>
+
+          <label>
+            花卉品种
+            <input
+              id="species"
+              name="species"
+              type="text"
+              list="speciesSuggestions"
+              placeholder="例如 玉兰、樱花、海棠"
+              required
+            />
+            <datalist id="speciesSuggestions"></datalist>
+          </label>
+
+          <label>
+            记录人
+            <input id="author" name="author" type="text" placeholder="例如 张三 / 林同学 / 校园观察者" required />
+          </label>
+
+          <label>
+            拍摄时间
+            <input id="shotDate" name="shotDate" type="date" required />
+          </label>
+
+          <label>
+            拍摄具体地点
+            <input id="location" name="location" type="text" placeholder="例如 东五教学楼里" required />
+          </label>
+
+          <label>
+            描述
+            <textarea
+              id="description"
+              name="description"
+              rows="4"
+              placeholder="记录花期、颜色、周边环境，或你观察到的细节"
+              required
+            ></textarea>
+          </label>
+
+          <label>
+            图片上传
+            <input id="images" name="images" type="file" accept="image/*" multiple />
+          </label>
+
+          <div class="form-help" id="imageHelpText">新增记录时至少上传一张图片。</div>
+
+          <div class="coordinate-note" id="coordinateNote">请先在地图上点击一个位置。</div>
+          <button id="relocateButton" class="secondary-button align-left hidden" type="button">
+            重新选择地图位置
+          </button>
+
+          <section id="existingImagesSection" class="existing-images hidden">
+            <div class="section-title-row">
+              <h3>已保存图片</h3>
+              <span class="section-tip">编辑时可移除旧图片，也可补传新图片。</span>
+            </div>
+            <div id="existingImagesList" class="existing-images-list"></div>
+          </section>
+
+          <div class="form-actions">
+            <button id="cancelButton" class="secondary-button" type="button">取消</button>
+            <button id="submitButton" class="primary-button" type="submit">提交</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="detailOverlay" class="detail-overlay hidden">
+      <div class="detail-shell">
+        <div class="detail-header">
+          <div>
+            <p class="detail-kicker">地点详情</p>
+            <h2 id="detailLocationTitle">地点详情</h2>
+            <p id="detailSummary" class="detail-summary"></p>
+          </div>
+          <button id="closeDetailButton" class="icon-button" type="button" aria-label="关闭地点详情">
+            ×
+          </button>
+        </div>
+
+        <div id="detailBody" class="detail-body"></div>
+      </div>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
