@@ -5,6 +5,7 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const { randomUUID } = require("crypto");
+const sharp = require("sharp");
 
 // 导入数据库模型
 const { prisma } = require('./models');
@@ -33,6 +34,9 @@ const DEFAULT_SETTINGS = {
 
 fs.mkdirSync(uploadDir, { recursive: true });
 fs.mkdirSync(dataDir, { recursive: true });
+
+const thumbnailDir = path.join(uploadDir, 'thumbnails');
+fs.mkdirSync(thumbnailDir, { recursive: true });
 
 // 初始化默认设置
 async function initSettings() {
@@ -197,10 +201,47 @@ function deleteUploadedFiles(imagePaths = []) {
   imagePaths.forEach((imagePath) => {
     const relativePath = imagePath.replace(/^\//, "");
     const filePath = path.join(uploadDir, relativePath.replace(/^uploads\//, ""));
+    const thumbnailPath = path.join(thumbnailDir, relativePath.replace(/^uploads\//, ""));
+    
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
+    
+    if (fs.existsSync(thumbnailPath)) {
+      fs.unlinkSync(thumbnailPath);
+    }
   });
+}
+
+async function generateThumbnail(filePath, thumbnailPath) {
+  try {
+    await sharp(filePath)
+      .resize(300, null, { withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toFile(thumbnailPath);
+    return true;
+  } catch (error) {
+    console.error('生成缩略图失败:', error);
+    return false;
+  }
+}
+
+async function processUploadedImages(files) {
+  const images = [];
+  
+  for (const file of files) {
+    const originalPath = path.join(uploadDir, file.filename);
+    const thumbnailPath = path.join(thumbnailDir, file.filename);
+    
+    await generateThumbnail(originalPath, thumbnailPath);
+    
+    images.push({
+      original: `/uploads/${file.filename}`,
+      thumbnail: `/uploads/thumbnails/${file.filename}`
+    });
+  }
+  
+  return images;
 }
 
 function resolveLocationId(body, currentRecord = null) {
@@ -389,11 +430,12 @@ app.post("/api/records", requireCreatePermission, upload.array("images", 10), as
       return res.status(400).json({ success: false, message: text.invalidCoordinates });
     }
 
-    const imagePaths = (req.files || []).map((file) => `/uploads/${file.filename}`);
-    if (imagePaths.length === 0) {
+    if (!req.files || req.files.length === 0) {
       return res.status(400).json({ success: false, message: text.createNeedImage });
     }
 
+    const processedImages = await processUploadedImages(req.files);
+    
     const now = new Date().toISOString();
     const newRecord = {
       id: randomUUID(),
@@ -405,7 +447,7 @@ app.post("/api/records", requireCreatePermission, upload.array("images", 10), as
       location: req.body.location.trim(),
       description: req.body.description.trim(),
       coordinates: { x, y },
-      images: imagePaths,
+      images: JSON.stringify(processedImages),
       createdAt: now,
       updatedAt: now
     };
@@ -441,17 +483,23 @@ app.put("/api/records/:id", requireModifyPermission, upload.array("images", 10),
       return res.status(404).json({ success: false, message: text.notFoundEdit });
     }
 
-    const existingImages = parseOptionalJson(req.body.existingImages, currentRecord.images);
-    const newImages = (req.files || []).map((file) => `/uploads/${file.filename}`);
-    const nextImages = [...existingImages, ...newImages];
+    const existingImages = parseOptionalJson(req.body.existingImages, JSON.parse(currentRecord.images || '[]'));
+    
+    let newProcessedImages = [];
+    if (req.files && req.files.length > 0) {
+      newProcessedImages = await processUploadedImages(req.files);
+    }
+    
+    const nextImages = [...existingImages, ...newProcessedImages];
 
     if (nextImages.length === 0) {
-      deleteUploadedFiles(newImages);
+      deleteUploadedFiles(newProcessedImages.map(img => img.original));
       return res.status(400).json({ success: false, message: text.noImageLeft });
     }
 
-    const removedImages = currentRecord.images.filter((imagePath) => !existingImages.includes(imagePath));
-    deleteUploadedFiles(removedImages);
+    const currentImages = JSON.parse(currentRecord.images || '[]');
+    const removedImages = currentImages.filter((img) => !existingImages.some(existing => existing.original === img.original));
+    deleteUploadedFiles(removedImages.map(img => img.original));
 
     const updatedRecord = {
       locationId: resolveLocationId(req.body, currentRecord),
@@ -462,7 +510,7 @@ app.put("/api/records/:id", requireModifyPermission, upload.array("images", 10),
       location: req.body.location.trim(),
       description: req.body.description.trim(),
       coordinates: { x, y },
-      images: nextImages,
+      images: JSON.stringify(nextImages),
       updatedAt: new Date().toISOString()
     };
 
@@ -488,12 +536,12 @@ app.delete("/api/records/:id", requireModifyPermission, async (req, res) => {
       return res.status(404).json({ success: false, message: text.notFoundDelete });
     }
 
-    const images = deletedRecord.images;
+    const images = JSON.parse(deletedRecord.images || '[]');
     await prisma.record.delete({
       where: { id: req.params.id }
     });
     
-    deleteUploadedFiles(images);
+    deleteUploadedFiles(images.map(img => img.original));
     res.json({ success: true, message: text.deleteSuccess });
   } catch (error) {
     console.error("Delete record failed:", error);

@@ -335,12 +335,15 @@ function updateExistingImagesView() {
   existingImagesList.innerHTML = "";
   existingImagesSection.classList.toggle("hidden", editingImages.length === 0);
 
-  editingImages.forEach((imagePath) => {
+  editingImages.forEach((imageObj) => {
+    const imagePath = typeof imageObj === 'string' ? imageObj : (imageObj.thumbnail || imageObj.original);
+    const originalPath = typeof imageObj === 'string' ? imageObj : (imageObj.original || imageObj.thumbnail);
+    
     const item = document.createElement("div");
     item.className = "existing-image-item";
     item.innerHTML = `
       <img src="${imagePath}" alt="${uiText.existingImageAlt}" />
-      <button type="button" class="remove-image-button" data-image="${imagePath}">${uiText.removeImage}</button>
+      <button type="button" class="remove-image-button" data-image="${originalPath}">${uiText.removeImage}</button>
     `;
     existingImagesList.appendChild(item);
   });
@@ -356,7 +359,11 @@ function setModalMode(mode, record = null) {
     submitButton.textContent = uiText.editSubmit;
     imageHelpText.textContent = uiText.editHelp;
     relocateButton.classList.remove("hidden");
-    editingImages = [...record.images];
+    try {
+      editingImages = typeof record.images === 'string' ? JSON.parse(record.images) : (record.images || []);
+    } catch (e) {
+      editingImages = [];
+    }
     appendLocationGroup = null;
     locationIdInput.value = record.locationId || "";
   } else if (mode === "append" && appendLocationGroup) {
@@ -626,10 +633,19 @@ function openLocationDetail(location) {
     ${toolbarHtml}
     ${group.records
       .map((record) => {
-        const imageHtml = record.images.length
-          ? record.images
-              .map((imagePath, index) => {
-                return `<img src="${imagePath}" alt="${escapeHtml(record.title)} ${uiText.imageAltSuffix} ${index + 1}" />`;
+        let images = [];
+        try {
+          images = typeof record.images === 'string' ? JSON.parse(record.images) : (record.images || []);
+        } catch (e) {
+          images = [];
+        }
+        
+        const imageHtml = images.length
+          ? images
+              .map((imageObj, index) => {
+                const thumbnailUrl = imageObj.thumbnail || imageObj;
+                const originalUrl = imageObj.original || imageObj;
+                return `<img src="${thumbnailUrl}" data-original="${originalUrl}" alt="${escapeHtml(record.title)} ${uiText.imageAltSuffix} ${index + 1}" class="thumbnail-image" onclick="openImageViewer('${originalUrl}', '${thumbnailUrl}')" />`;
               })
               .join("")
           : `<div class="popup-empty">${uiText.noImage}</div>`;
@@ -1174,3 +1190,67 @@ panelToggleButton.addEventListener("click", () => {
 Promise.all([refreshAdminSession(true), loadRecords()]).catch((error) => {
   console.error(error);
 });
+
+const imageViewerOverlay = document.createElement('div');
+imageViewerOverlay.id = 'imageViewerOverlay';
+imageViewerOverlay.className = 'image-viewer-overlay hidden';
+imageViewerOverlay.innerHTML = `
+  <div class="image-viewer-container">
+    <button id="closeImageViewerButton" class="icon-button image-viewer-close" type="button" aria-label="关闭图片查看器">
+      ×
+    </button>
+    <div class="image-viewer-content">
+      <img id="imageViewerImg" src="" alt="查看图片" />
+    </div>
+    <div class="image-viewer-actions">
+      <button id="viewOriginalButton" class="primary-button" type="button">查看原图</button>
+    </div>
+  </div>
+`;
+document.body.appendChild(imageViewerOverlay);
+
+let currentOriginalUrl = '';
+let currentThumbnailUrl = '';
+
+function openImageViewer(originalUrl, thumbnailUrl) {
+  currentOriginalUrl = originalUrl;
+  currentThumbnailUrl = thumbnailUrl;
+  
+  const viewerImg = document.getElementById('imageViewerImg');
+  viewerImg.src = thumbnailUrl;
+  
+  imageViewerOverlay.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeImageViewer() {
+  imageViewerOverlay.classList.add('hidden');
+  document.body.style.overflow = '';
+  
+  const viewerImg = document.getElementById('imageViewerImg');
+  viewerImg.src = '';
+}
+
+function viewOriginalImage() {
+  if (currentOriginalUrl) {
+    const viewerImg = document.getElementById('imageViewerImg');
+    viewerImg.src = currentOriginalUrl;
+  }
+}
+
+document.getElementById('closeImageViewerButton').addEventListener('click', closeImageViewer);
+document.getElementById('viewOriginalButton').addEventListener('click', viewOriginalImage);
+
+imageViewerOverlay.addEventListener('click', (e) => {
+  if (e.target === imageViewerOverlay) {
+    closeImageViewer();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !imageViewerOverlay.classList.contains('hidden')) {
+    closeImageViewer();
+  }
+});
+
+window.openImageViewer = openImageViewer;
