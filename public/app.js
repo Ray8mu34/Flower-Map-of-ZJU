@@ -838,19 +838,12 @@ function addLocationMarker(group) {
 }
 
 function applyFiltersAndRender() {
-  const baseRecords = records.filter((record) => {
-    const searchText = normalizeText(`${record.title} ${record.species} ${record.location} ${record.description}`);
-    const locationText = normalizeText(record.location);
-    const matchSearch = !searchKeyword || searchText.includes(searchKeyword);
-    const matchLocation = !locationKeyword || locationText.includes(locationKeyword);
-    return matchSearch && matchLocation;
-  });
-
-  if (selectedSpecies !== FILTER_ALL && !baseRecords.some((record) => record.species === selectedSpecies)) {
+  const filteredRecords = getFilteredRecords();
+  
+  if (selectedSpecies !== FILTER_ALL && !filteredRecords.some((record) => record.species === selectedSpecies)) {
     selectedSpecies = FILTER_ALL;
   }
 
-  const filteredRecords = getFilteredRecords();
   const filteredGroups = buildLocationGroups(filteredRecords);
 
   markerStore.forEach(({ marker }) => map.removeLayer(marker));
@@ -858,7 +851,7 @@ function applyFiltersAndRender() {
   filteredGroups.forEach(addLocationMarker);
 
   renderSpeciesOptions();
-  renderSpeciesPanel(baseRecords);
+  renderSpeciesPanel(filteredRecords);
 }
 
 async function loadRecords() {
@@ -1153,8 +1146,9 @@ recordForm.addEventListener("submit", async (event) => {
   }
 
   const locationValue = document.getElementById("location").value.trim();
-  const existingGroup = buildLocationGroups(records).find(
-    (group) => normalizeText(group.location) === normalizeText(locationValue)
+  const normalizedLocation = normalizeText(locationValue);
+  const existingGroup = records.find(
+    (record) => normalizeText(record.location) === normalizedLocation
   );
   if (modalMode === "create" && existingGroup) {
     showStatus(uiText.duplicateLocation, true);
