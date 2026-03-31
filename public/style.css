@@ -200,6 +200,10 @@ body {
 
 .panel-body {
   padding: 0 18px 18px;
+  max-height: 70vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .panel-body.collapsed {
@@ -266,6 +270,28 @@ body {
   margin: 16px 0 0;
   display: grid;
   gap: 10px;
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 6px;
+  min-height: 0;
+}
+
+.species-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.species-list::-webkit-scrollbar-track {
+  background: #f1e9df;
+  border-radius: 3px;
+}
+
+.species-list::-webkit-scrollbar-thumb {
+  background: #d36f42;
+  border-radius: 3px;
+}
+
+.species-list::-webkit-scrollbar-thumb:hover {
+  background: #aa4f28;
 }
 
 .species-button {
