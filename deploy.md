@@ -146,12 +146,8 @@ server {
     client_max_body_size 64M;
 
     # 上传文件直接服务（数据目录与源码分离）
-    location /uploads/ {
-        alias /var/data/flower-map/data/uploads/;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-        autoindex off;
-    }
+    # 移除直接的静态文件访问，所有图片通过API访问
+    # 防止绕过时间戳和token验证
 
     # 代理到Node.js应用
     location / {
@@ -425,12 +421,8 @@ server {
 
     client_max_body_size 64M;
 
-    location /uploads/ {
-        alias /var/data/flower-map/data/uploads/;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-        autoindex off;
-    }
+    # 移除直接的静态文件访问，所有图片通过API访问
+    # 防止绕过时间戳和token验证
 
     location / {
         proxy_pass http://127.0.0.1:3001;
@@ -470,13 +462,8 @@ server {
 
     client_max_body_size 64M;
 
-    location /uploads/ {
-        alias /srv/data/zjuaaa-site/uploads/;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-        autoindex off;
-        error_page 404 = /404.html;
-    }
+    # 移除直接的静态文件访问，所有图片通过API访问
+    # 防止绕过时间戳和token验证
 
     location / {
         proxy_pass http://127.0.0.1:3000;

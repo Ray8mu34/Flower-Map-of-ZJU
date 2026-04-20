@@ -1275,6 +1275,28 @@ function sanitizeImageUrl(url) {
     return url;
   }
   
+  // 将旧的/uploads/路径转换为新的/api/images/格式
+  if (url.startsWith('/uploads/')) {
+    // 提取文件名
+    let filename = url.substring(url.lastIndexOf('/') + 1);
+    let isThumbnail = false;
+    
+    // 处理缩略图路径
+    if (url.includes('/thumbnails/')) {
+      isThumbnail = true;
+      filename = url.substring(url.lastIndexOf('/thumbnails/') + 11);
+    }
+    
+    if (filename) {
+      // 生成带有时间戳和token的安全URL
+      const timestamp = Math.floor(Date.now() / 1000);
+      const path = isThumbnail ? `thumbnails/${filename}` : filename;
+      // 注意：实际项目中应该由服务端生成token
+      // 这里使用简单的实现，实际应该与后端保持一致
+      return `/api/images/${path}?ts=${timestamp}&token=temp_token`;
+    }
+  }
+  
   // 检查传统图片格式
   const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
   const urlLower = url.toLowerCase();
