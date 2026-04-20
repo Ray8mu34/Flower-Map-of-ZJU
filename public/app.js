@@ -687,8 +687,8 @@ function openLocationDetail(location) {
         const imageHtml = images.length
           ? images
               .map((imageObj, index) => {
-                const thumbnailUrl = sanitizeImageUrl(imageObj.thumbnail || imageObj);
-                const originalUrl = sanitizeImageUrl(imageObj.original || imageObj);
+                const thumbnailUrl = sanitizeImageUrl(imageObj.thumbnail || imageObj.original || imageObj);
+                const originalUrl = sanitizeImageUrl(imageObj.original || imageObj.thumbnail || imageObj);
                 if (!thumbnailUrl) return '';
                 return `<img src="${thumbnailUrl}" data-original="${originalUrl}" alt="${escapeHtml(record.title)} ${uiText.imageAltSuffix} ${index + 1}" class="thumbnail-image" onclick="openImageViewer('${originalUrl}', '${thumbnailUrl}')" />`;
               })
@@ -1300,7 +1300,15 @@ function sanitizeImageUrl(url) {
   // 检查传统图片格式
   const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
   const urlLower = url.toLowerCase();
-  return allowedExtensions.some(ext => urlLower.endsWith(ext)) ? url : '';
+  
+  // 对于直接的文件名，尝试作为原图处理
+  if (allowedExtensions.some(ext => urlLower.endsWith(ext))) {
+    // 生成带有时间戳和token的安全URL
+    const timestamp = Math.floor(Date.now() / 1000);
+    return `/api/images/${url}?ts=${timestamp}&token=temp_token`;
+  }
+  
+  return '';
 }
 
 function openImageViewer(originalUrl, thumbnailUrl) {
