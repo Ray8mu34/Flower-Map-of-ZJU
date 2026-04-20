@@ -690,7 +690,7 @@ function openLocationDetail(location) {
                 const thumbnailUrl = sanitizeImageUrl(imageObj.thumbnail || imageObj.original || imageObj, true);
                 const originalUrl = sanitizeImageUrl(imageObj.original || imageObj.thumbnail || imageObj, false);
                 if (!thumbnailUrl) return '';
-                return `<img src="${thumbnailUrl}" data-original="${originalUrl}" alt="${escapeHtml(record.title)} ${uiText.imageAltSuffix} ${index + 1}" class="thumbnail-image" onclick="openImageViewer('${originalUrl}', '${thumbnailUrl}')" />`;
+                return `<img src="${thumbnailUrl}" data-original="${originalUrl}" alt="${escapeHtml(record.title)} ${uiText.imageAltSuffix} ${index + 1}" class="thumbnail-image" onclick="openImageViewer('${originalUrl}', '${thumbnailUrl}')" onerror="this.src='${originalUrl}';" />`;
               })
               .filter(Boolean)
               .join("")
@@ -1324,6 +1324,13 @@ function openImageViewer(originalUrl, thumbnailUrl) {
   
   const viewerImg = document.getElementById('imageViewerImg');
   viewerImg.src = currentThumbnailUrl;
+  
+  // 当缩略图加载失败时，使用原图
+  viewerImg.onerror = function() {
+    if (currentOriginalUrl) {
+      viewerImg.src = currentOriginalUrl;
+    }
+  };
   
   imageViewerOverlay.classList.remove('hidden');
   document.body.style.overflow = 'hidden';

@@ -274,10 +274,27 @@ app.get('/api/images/:filename', (req, res) => {
 
 async function generateThumbnail(filePath, thumbnailPath) {
   try {
+    console.log('生成缩略图:', filePath, '->', thumbnailPath);
+    
+    // 确保缩略图目录存在
+    const thumbnailDir = path.dirname(thumbnailPath);
+    if (!fs.existsSync(thumbnailDir)) {
+      fs.mkdirSync(thumbnailDir, { recursive: true });
+      console.log('创建缩略图目录:', thumbnailDir);
+    }
+    
+    // 检查原图是否存在
+    if (!fs.existsSync(filePath)) {
+      console.error('原图不存在:', filePath);
+      return false;
+    }
+    
     await sharp(filePath)
       .resize(300, null, { withoutEnlargement: true })
       .jpeg({ quality: 80 })
       .toFile(thumbnailPath);
+    
+    console.log('缩略图生成成功:', thumbnailPath);
     return true;
   } catch (error) {
     console.error('生成缩略图失败:', error);
@@ -299,11 +316,20 @@ async function processUploadedImages(files) {
     const originalPath = path.join(uploadDir, file.filename);
     const thumbnailPath = path.join(thumbnailDir, file.filename);
     
-    await generateThumbnail(originalPath, thumbnailPath);
+    const thumbnailGenerated = await generateThumbnail(originalPath, thumbnailPath);
+    
+    const originalUrl = generateImageUrl(file.filename, false);
+    let thumbnailUrl = generateImageUrl(file.filename, true);
+    
+    // 如果缩略图生成失败，使用原图作为备选
+    if (!thumbnailGenerated) {
+      console.log('使用原图作为缩略图备选:', file.filename);
+      thumbnailUrl = originalUrl;
+    }
     
     images.push({
-      original: generateImageUrl(file.filename, false),
-      thumbnail: generateImageUrl(file.filename, true)
+      original: originalUrl,
+      thumbnail: thumbnailUrl
     });
   }
   
