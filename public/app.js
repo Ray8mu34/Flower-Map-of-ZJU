@@ -339,8 +339,8 @@ function updateExistingImagesView() {
   existingImagesSection.classList.toggle("hidden", editingImages.length === 0);
 
   editingImages.forEach((imageObj) => {
-    const imagePath = sanitizeImageUrl(typeof imageObj === 'string' ? imageObj : (imageObj.thumbnail || imageObj.original));
-    const originalPath = sanitizeImageUrl(typeof imageObj === 'string' ? imageObj : (imageObj.original || imageObj.thumbnail));
+    const imagePath = sanitizeImageUrl(typeof imageObj === 'string' ? imageObj : (imageObj.thumbnail || imageObj.original), true);
+    const originalPath = sanitizeImageUrl(typeof imageObj === 'string' ? imageObj : (imageObj.original || imageObj.thumbnail), false);
     
     if (!imagePath) return;
     
@@ -687,8 +687,8 @@ function openLocationDetail(location) {
         const imageHtml = images.length
           ? images
               .map((imageObj, index) => {
-                const thumbnailUrl = sanitizeImageUrl(imageObj.thumbnail || imageObj.original || imageObj);
-                const originalUrl = sanitizeImageUrl(imageObj.original || imageObj.thumbnail || imageObj);
+                const thumbnailUrl = sanitizeImageUrl(imageObj.thumbnail || imageObj.original || imageObj, true);
+                const originalUrl = sanitizeImageUrl(imageObj.original || imageObj.thumbnail || imageObj, false);
                 if (!thumbnailUrl) return '';
                 return `<img src="${thumbnailUrl}" data-original="${originalUrl}" alt="${escapeHtml(record.title)} ${uiText.imageAltSuffix} ${index + 1}" class="thumbnail-image" onclick="openImageViewer('${originalUrl}', '${thumbnailUrl}')" />`;
               })
@@ -1267,7 +1267,7 @@ document.body.appendChild(imageViewerOverlay);
 let currentOriginalUrl = '';
 let currentThumbnailUrl = '';
 
-function sanitizeImageUrl(url) {
+function sanitizeImageUrl(url, isThumbnail = false) {
   if (!url) return '';
   
   // 检查是否是新的API图片URL格式
@@ -1279,18 +1279,19 @@ function sanitizeImageUrl(url) {
   if (url.startsWith('/uploads/')) {
     // 提取文件名
     let filename = url.substring(url.lastIndexOf('/') + 1);
-    let isThumbnail = false;
+    let urlIsThumbnail = false;
     
     // 处理缩略图路径
     if (url.includes('/thumbnails/')) {
-      isThumbnail = true;
+      urlIsThumbnail = true;
       filename = url.substring(url.lastIndexOf('/thumbnails/') + 11);
     }
     
     if (filename) {
       // 生成带有时间戳和token的安全URL
       const timestamp = Math.floor(Date.now() / 1000);
-      const path = isThumbnail ? `thumbnails/${filename}` : filename;
+      // 如果指定了isThumbnail，或者URL本身就是缩略图路径，使用thumbnails/目录
+      const path = (isThumbnail || urlIsThumbnail) ? `thumbnails/${filename}` : filename;
       // 注意：实际项目中应该由服务端生成token
       // 这里使用简单的实现，实际应该与后端保持一致
       return `/api/images/${path}?ts=${timestamp}&token=temp_token`;
@@ -1301,19 +1302,20 @@ function sanitizeImageUrl(url) {
   const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
   const urlLower = url.toLowerCase();
   
-  // 对于直接的文件名，尝试作为原图处理
+  // 对于直接的文件名，根据isThumbnail参数决定路径
   if (allowedExtensions.some(ext => urlLower.endsWith(ext))) {
     // 生成带有时间戳和token的安全URL
     const timestamp = Math.floor(Date.now() / 1000);
-    return `/api/images/${url}?ts=${timestamp}&token=temp_token`;
+    const path = isThumbnail ? `thumbnails/${url}` : url;
+    return `/api/images/${path}?ts=${timestamp}&token=temp_token`;
   }
   
   return '';
 }
 
 function openImageViewer(originalUrl, thumbnailUrl) {
-  currentOriginalUrl = sanitizeImageUrl(originalUrl);
-  currentThumbnailUrl = sanitizeImageUrl(thumbnailUrl);
+  currentOriginalUrl = sanitizeImageUrl(originalUrl, false);
+  currentThumbnailUrl = sanitizeImageUrl(thumbnailUrl, true);
   
   if (!currentThumbnailUrl) {
     showStatus('图片格式不支持', true);
