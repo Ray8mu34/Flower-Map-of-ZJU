@@ -101,53 +101,22 @@ const storage = multer.diskStorage({
 const upload = multer({  
   storage,  
   fileFilter(req, file, cb) {
-    // 首先检查mimetype
+    // 检查mimetype
     const isImage = /^image\/(jpeg|png|gif|webp|bmp)$/i.test(file.mimetype);
     if (!isImage) {
       cb(new Error(text.invalidFile));
       return;
     }
     
-    // 读取文件头进行验证
-    const fileStream = file.stream;
-    const chunks = [];
+    // 检查文件扩展名
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+    if (!allowedExtensions.includes(fileExtension)) {
+      cb(new Error(text.invalidFile));
+      return;
+    }
     
-    fileStream.on('data', chunk => {
-      chunks.push(chunk);
-      if (chunks.length > 1) {
-        fileStream.destroy();
-      }
-    });
-    
-    fileStream.on('end', () => {
-      const buffer = Buffer.concat(chunks);
-      const fileHeader = buffer.toString('hex', 0, 12);
-      
-      // 验证文件头
-      const isValidImage = (
-        // JPEG: FF D8 FF
-        fileHeader.startsWith('ffd8ff') ||
-        // PNG: 89 50 4E 47
-        fileHeader.startsWith('89504e47') ||
-        // GIF: 47 49 46 38
-        fileHeader.startsWith('47494638') ||
-        // WebP: 52 49 46 46 ... 57 45 42 50
-        (fileHeader.startsWith('52494646') && fileHeader.includes('57454250')) ||
-        // BMP: 42 4D
-        fileHeader.startsWith('424d')
-      );
-      
-      if (!isValidImage) {
-        cb(new Error(text.invalidFile));
-        return;
-      }
-      
-      cb(null, true);
-    });
-    
-    fileStream.on('error', () => {
-      cb(new Error('文件读取失败'));
-    });
+    cb(null, true);
   }
 });
 
