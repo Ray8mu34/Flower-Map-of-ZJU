@@ -96,7 +96,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter(req, file, cb) {
-    const isImage = /^image\/(jpeg|png|gif|webp|bmp|svg\+xml)$/i.test(file.mimetype);
+    const isImage = /^image\/(jpeg|png|gif|webp|bmp)$/i.test(file.mimetype);
     if (!isImage) {
       cb(new Error(text.invalidFile));
       return;
@@ -118,8 +118,8 @@ app.use(
   })
 );
 app.use(express.static(publicDir));
-// 添加uploads目录的静态路由
-app.use('/uploads', express.static(uploadDir));
+// 移除直接的uploads静态路由，改为通过服务端处理
+// app.use('/uploads', express.static(uploadDir));
 
 function normalizeText(value = "") {
   return String(value).trim().toLowerCase();
@@ -213,6 +213,48 @@ function deleteUploadedFiles(imagePaths = []) {
   });
 }
 
+// 图片访问路由，带时间戳和过期时间检测
+app.get('/api/images/:filename', (req, res) => {
+  const { filename } = req.params;
+  const { ts, token } = req.query;
+  
+  // 验证时间戳，防止过期访问
+  if (!ts || !token) {
+    return res.status(403).send('Access denied');
+  }
+  
+  const timestamp = parseInt(ts, 10);
+  const now = Math.floor(Date.now() / 1000);
+  const expiration = 7 * 24 * 60 * 60; // 7天过期
+  
+  if (now - timestamp > expiration) {
+    return res.status(410).send('Link expired');
+  }
+  
+  // 验证token（简单实现，实际项目中可使用更复杂的签名）
+  const expectedToken = Buffer.from(`${filename}:${ts}:${SESSION_SECRET}`).toString('base64');
+  if (token !== expectedToken) {
+    return res.status(403).send('Invalid token');
+  }
+  
+  // 确定文件路径
+  let filePath;
+  if (filename.includes('/thumbnails/')) {
+    const cleanFilename = filename.replace('/thumbnails/', '');
+    filePath = path.join(thumbnailDir, cleanFilename);
+  } else {
+    filePath = path.join(uploadDir, filename);
+  }
+  
+  // 检查文件是否存在
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send('File not found');
+  }
+  
+  // 发送文件
+  res.sendFile(filePath);
+});
+
 async function generateThumbnail(filePath, thumbnailPath) {
   try {
     await sharp(filePath)
@@ -226,6 +268,13 @@ async function generateThumbnail(filePath, thumbnailPath) {
   }
 }
 
+function generateImageUrl(filename, isThumbnail = false) {
+  const ts = Math.floor(Date.now() / 1000);
+  const path = isThumbnail ? `thumbnails/${filename}` : filename;
+  const token = Buffer.from(`${path}:${ts}:${SESSION_SECRET}`).toString('base64');
+  return `/api/images/${path}?ts=${ts}&token=${token}`;
+}
+
 async function processUploadedImages(files) {
   const images = [];
   
@@ -236,8 +285,8 @@ async function processUploadedImages(files) {
     await generateThumbnail(originalPath, thumbnailPath);
     
     images.push({
-      original: `/uploads/${file.filename}`,
-      thumbnail: `/uploads/thumbnails/${file.filename}`
+      original: generateImageUrl(file.filename, false),
+      thumbnail: generateImageUrl(file.filename, true)
     });
   }
   

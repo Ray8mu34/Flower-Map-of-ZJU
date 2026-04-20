@@ -336,8 +336,10 @@ function updateExistingImagesView() {
   existingImagesSection.classList.toggle("hidden", editingImages.length === 0);
 
   editingImages.forEach((imageObj) => {
-    const imagePath = typeof imageObj === 'string' ? imageObj : (imageObj.thumbnail || imageObj.original);
-    const originalPath = typeof imageObj === 'string' ? imageObj : (imageObj.original || imageObj.thumbnail);
+    const imagePath = sanitizeImageUrl(typeof imageObj === 'string' ? imageObj : (imageObj.thumbnail || imageObj.original));
+    const originalPath = sanitizeImageUrl(typeof imageObj === 'string' ? imageObj : (imageObj.original || imageObj.thumbnail));
+    
+    if (!imagePath) return;
     
     const item = document.createElement("div");
     item.className = "existing-image-item";
@@ -669,10 +671,12 @@ function openLocationDetail(location) {
         const imageHtml = images.length
           ? images
               .map((imageObj, index) => {
-                const thumbnailUrl = imageObj.thumbnail || imageObj;
-                const originalUrl = imageObj.original || imageObj;
+                const thumbnailUrl = sanitizeImageUrl(imageObj.thumbnail || imageObj);
+                const originalUrl = sanitizeImageUrl(imageObj.original || imageObj);
+                if (!thumbnailUrl) return '';
                 return `<img src="${thumbnailUrl}" data-original="${originalUrl}" alt="${escapeHtml(record.title)} ${uiText.imageAltSuffix} ${index + 1}" class="thumbnail-image" onclick="openImageViewer('${originalUrl}', '${thumbnailUrl}')" />`;
               })
+              .filter(Boolean)
               .join("")
           : `<div class="popup-empty">${uiText.noImage}</div>`;
 
@@ -726,8 +730,11 @@ function createPopupContent(group) {
   const galleryHtml = previewImages.length
     ? previewImages
         .map((imagePath, index) => {
-          return `<img src="${imagePath}" alt="${escapeHtml(group.latestRecord.title)} ${uiText.imageAltSuffix} ${index + 1}" />`;
+          const sanitizedPath = sanitizeImageUrl(imagePath);
+          if (!sanitizedPath) return '';
+          return `<img src="${sanitizedPath}" alt="${escapeHtml(group.latestRecord.title)} ${uiText.imageAltSuffix} ${index + 1}" />`;
         })
+        .filter(Boolean)
         .join("")
     : `<div class="popup-empty">${uiText.noImage}</div>`;
 
@@ -1239,12 +1246,31 @@ document.body.appendChild(imageViewerOverlay);
 let currentOriginalUrl = '';
 let currentThumbnailUrl = '';
 
+function sanitizeImageUrl(url) {
+  if (!url) return '';
+  
+  // 检查是否是新的API图片URL格式
+  if (url.startsWith('/api/images/')) {
+    return url;
+  }
+  
+  // 检查传统图片格式
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+  const urlLower = url.toLowerCase();
+  return allowedExtensions.some(ext => urlLower.endsWith(ext)) ? url : '';
+}
+
 function openImageViewer(originalUrl, thumbnailUrl) {
-  currentOriginalUrl = originalUrl;
-  currentThumbnailUrl = thumbnailUrl;
+  currentOriginalUrl = sanitizeImageUrl(originalUrl);
+  currentThumbnailUrl = sanitizeImageUrl(thumbnailUrl);
+  
+  if (!currentThumbnailUrl) {
+    showStatus('图片格式不支持', true);
+    return;
+  }
   
   const viewerImg = document.getElementById('imageViewerImg');
-  viewerImg.src = thumbnailUrl;
+  viewerImg.src = currentThumbnailUrl;
   
   imageViewerOverlay.classList.remove('hidden');
   document.body.style.overflow = 'hidden';

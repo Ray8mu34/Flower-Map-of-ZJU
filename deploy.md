@@ -182,6 +182,50 @@ sudo systemctl reload nginx
 
 **访问地址**：`http://flower.zjuaaa.cn`
 
+### 8. 配置HTTPS（启用SSL证书）
+
+#### 8.1 安装Certbot工具
+
+```bash
+# 安装Certbot和Nginx插件
+sudo apt update
+sudo apt install certbot python3-certbot-nginx
+```
+
+#### 8.2 申请SSL证书
+
+```bash
+# 为花卉项目域名申请证书
+sudo certbot --nginx -d flower.zjuaaa.cn
+
+# 按提示输入邮箱、同意条款等信息
+# Certbot会自动修改Nginx配置，将HTTP重定向到HTTPS
+```
+
+#### 8.3 验证HTTPS配置
+
+访问 `https://flower.zjuaaa.cn`，查看浏览器地址栏是否显示“安全”图标。
+
+#### 8.4 配置证书自动续期
+
+Let's Encrypt证书有效期为90天，需设置自动续期：
+
+```bash
+# 添加定时任务，每天自动检查并续期
+sudo crontab -e
+# 在文件末尾添加一行：
+0 3 * * * /usr/bin/certbot renew --quiet
+```
+
+#### 8.5 为其他项目申请证书（如需要）
+
+如果服务器上还有其他项目（如 `zjuaaa-site`），可以为其单独申请证书：
+
+```bash
+# 为其他项目域名申请证书
+sudo certbot --nginx -d zjuaaa.zjuaaa.cn
+```
+
 ## 三、目录结构说明
 
 项目采用**源码和数据分离**的架构：
@@ -285,8 +329,11 @@ pm2 logs flower-map
 2. **权限设置**：确保数据目录有正确的读写权限
 3. **环境变量**：生产环境务必设置强密码和随机SESSION_SECRET
 4. **防火墙**：开放80/443端口，如需直接访问3001端口也需开放
-5. **Prisma迁移**：每次更新代码后记得运行 `npx prisma migrate deploy`
-6. **数据库路径**：确保 `.env` 中的 `DATABASE_URL` 指向正确的数据库文件路径
+5. **云服务器安全组**：**重要！** 在云服务器控制台（如腾讯云、阿里云）的安全组中，必须开放80和443端口，否则外部无法访问网站
+6. **Prisma迁移**：每次更新代码后记得运行 `npx prisma migrate deploy`
+7. **数据库路径**：确保 `.env` 中的 `DATABASE_URL` 指向正确的数据库文件路径
+8. **HTTPS配置**：启用SSL证书后，确保所有HTTP请求都重定向到HTTPS
+9. **证书续期**：验证自动续期任务是否正常运行，可通过 `sudo certbot renew --dry-run` 测试
 
 ## 七、部署经验心得
 
@@ -351,3 +398,110 @@ sudo chmod -R 755 /var/data/flower-map/
 - 定期备份数据目录
 - 限制服务器 SSH 访问，使用密钥认证
 - 考虑启用 HTTPS（配置 SSL 证书）
+
+
+### https部署指令
+
+```
+# ========================
+# flower-site 配置
+# ========================
+sudo bash -c 'cat > /etc/nginx/sites-available/flower-site << "EOF"
+server {
+    listen 80;
+    server_name flower.zjuaaa.cn;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name flower.zjuaaa.cn;
+
+    ssl_certificate /etc/letsencrypt/live/flower.zjuaaa.cn/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/flower.zjuaaa.cn/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384";
+    ssl_prefer_server_ciphers on;
+
+    client_max_body_size 64M;
+
+    location /uploads/ {
+        alias /var/data/flower-map/data/uploads/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        autoindex off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+EOF'
+
+# 启用 site
+sudo ln -sf /etc/nginx/sites-available/flower-site /etc/nginx/sites-enabled/flower-site
+
+# ========================
+# zjuaaa-site 配置
+# ========================
+sudo bash -c 'cat > /etc/nginx/sites-available/zjuaaa-site << "EOF"
+server {
+    listen 80;
+    server_name zjuaaa.cn www.zjuaaa.cn;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name zjuaaa.cn www.zjuaaa.cn;
+
+    ssl_certificate /etc/letsencrypt/live/zjuaaa.cn/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/zjuaaa.cn/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384";
+    ssl_prefer_server_ciphers on;
+
+    client_max_body_size 64M;
+
+    location /uploads/ {
+        alias /srv/data/zjuaaa-site/uploads/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        autoindex off;
+        error_page 404 = /404.html;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+EOF'
+
+# 启用 site
+sudo ln -sf /etc/nginx/sites-available/zjuaaa-site /etc/nginx/sites-enabled/zjuaaa-site
+
+# ========================
+# 测试 Nginx 配置并重载
+# ========================
+sudo nginx -t && sudo systemctl reload nginx
+
+# ========================
+# 开放防火墙端口（如果使用 ufw）
+# ========================
+sudo ufw allow 80
+sudo ufw allow 443
+```
