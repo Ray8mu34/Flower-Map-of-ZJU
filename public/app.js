@@ -117,6 +117,9 @@ const cancelAdminButton = document.getElementById("cancelAdminButton");
 const adminLoginForm = document.getElementById("adminLoginForm");
 const adminUsername = document.getElementById("adminUsername");
 const adminPassword = document.getElementById("adminPassword");
+const adminCaptcha = document.getElementById("adminCaptcha");
+const captchaDisplay = document.getElementById("captchaDisplay");
+const refreshCaptchaButton = document.getElementById("refreshCaptchaButton");
 const submitAdminButton = document.getElementById("submitAdminButton");
 const panelToggleButton = document.getElementById("panelToggleButton");
 const panelBody = document.getElementById("panelBody");
@@ -435,6 +438,18 @@ function closeAdminModal() {
   adminLoginForm.reset();
 }
 
+async function fetchCaptcha() {
+  try {
+    const response = await fetch("/api/admin/captcha");
+    const result = await response.json();
+    if (result.success) {
+      captchaDisplay.textContent = result.captcha;
+    }
+  } catch (error) {
+    console.error("获取验证码失败:", error);
+  }
+}
+
 function openAdminModal() {
   if (!isAdminConfigured()) {
     showStatus(uiText.adminConfigWarning, true);
@@ -442,6 +457,7 @@ function openAdminModal() {
   }
 
   adminModalOverlay.classList.remove("hidden");
+  fetchCaptcha();
   adminUsername.focus();
 }
 
@@ -1005,6 +1021,8 @@ adminModalOverlay.addEventListener("click", (event) => {
   }
 });
 
+refreshCaptchaButton.addEventListener("click", fetchCaptcha);
+
 adminLoginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -1018,12 +1036,15 @@ adminLoginForm.addEventListener("submit", async (event) => {
       },
       body: JSON.stringify({
         username: adminUsername.value.trim(),
-        password: adminPassword.value.trim()
+        password: adminPassword.value.trim(),
+        captcha: adminCaptcha.value.trim()
       })
     });
 
     const result = await response.json();
     if (!response.ok || !result.success) {
+      // 登录失败时刷新验证码
+      fetchCaptcha();
       throw new Error(result.message || "Login failed.");
     }
 

@@ -118,6 +118,22 @@
             />
           </label>
 
+          <label>
+            验证码
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <input
+                id="adminCaptcha"
+                name="captcha"
+                type="text"
+                placeholder="请输入验证码"
+                required
+                style="flex: 1;"
+              />
+              <span id="captchaDisplay" style="font-family: monospace; font-size: 16px; font-weight: bold; letter-spacing: 2px; padding: 8px 12px; background: #f5f5f5; border-radius: 6px;"></span>
+              <button type="button" id="refreshCaptchaButton" style="padding: 8px 12px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 6px; cursor: pointer;">刷新</button>
+            </div>
+          </label>
+
           <div class="form-actions">
             <button id="cancelAdminButton" class="secondary-button" type="button">取消</button>
             <button id="submitAdminButton" class="primary-button" type="submit">登录</button>

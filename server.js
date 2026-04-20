@@ -22,6 +22,11 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-this-password";
 const SESSION_SECRET = process.env.SESSION_SECRET || "campus-flower-map-session-secret";
 
+// 登录尝试限制
+const loginAttempts = new Map();
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION = 15 * 60 * 1000; // 15分钟
+
 const EDIT_MODES = {
   public: "public",
   publicAddOnly: "public_add_only",
@@ -381,14 +386,81 @@ app.get("/api/admin/session", async (req, res) => {
   }
 });
 
+// 生成验证码
+function generateCaptcha() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let captcha = '';
+  for (let i = 0; i < 6; i++) {
+    captcha += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return captcha;
+}
+
+// 检查登录尝试限制
+function checkLoginAttempts(ip) {
+  const attempts = loginAttempts.get(ip) || { count: 0, lastAttempt: Date.now(), lockedUntil: 0 };
+  
+  if (attempts.lockedUntil > Date.now()) {
+    return { locked: true, remainingTime: Math.ceil((attempts.lockedUntil - Date.now()) / 1000) };
+  }
+  
+  if (attempts.count >= MAX_LOGIN_ATTEMPTS) {
+    attempts.lockedUntil = Date.now() + LOCKOUT_DURATION;
+    loginAttempts.set(ip, attempts);
+    return { locked: true, remainingTime: Math.ceil(LOCKOUT_DURATION / 1000) };
+  }
+  
+  return { locked: false, attempts: attempts.count };
+}
+
+// 更新登录尝试
+function updateLoginAttempts(ip, success) {
+  const attempts = loginAttempts.get(ip) || { count: 0, lastAttempt: Date.now(), lockedUntil: 0 };
+  
+  if (success) {
+    // 登录成功，重置尝试次数
+    loginAttempts.delete(ip);
+  } else {
+    // 登录失败，增加尝试次数
+    attempts.count++;
+    attempts.lastAttempt = Date.now();
+    loginAttempts.set(ip, attempts);
+  }
+}
+
 app.post("/api/admin/login", async (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress;
   const username = String(req.body.username || "").trim();
   const password = String(req.body.password || "").trim();
-
+  const captcha = String(req.body.captcha || "").trim();
+  
+  // 检查登录尝试限制
+  const attemptCheck = checkLoginAttempts(ip);
+  if (attemptCheck.locked) {
+    return res.status(429).json({ 
+      success: false, 
+      message: `登录尝试次数过多，请 ${attemptCheck.remainingTime} 秒后再试` 
+    });
+  }
+  
+  // 验证验证码
+  if (!captcha || req.session.captcha !== captcha.toUpperCase()) {
+    updateLoginAttempts(ip, false);
+    return res.status(401).json({ success: false, message: "验证码错误" });
+  }
+  
+  // 验证用户名和密码
   if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    updateLoginAttempts(ip, false);
     return res.status(401).json({ success: false, message: text.loginFail });
   }
-
+  
+  // 登录成功，重置尝试次数
+  updateLoginAttempts(ip, true);
+  
+  // 清除验证码
+  delete req.session.captcha;
+  
   req.session.isAdmin = true;
   req.session.username = ADMIN_USERNAME;
 
@@ -413,6 +485,18 @@ app.post("/api/admin/login", async (req, res) => {
 app.post("/api/admin/logout", (req, res) => {
   req.session.destroy(() => {
     res.json({ success: true, message: text.logoutSuccess });
+  });
+});
+
+// 生成验证码接口
+app.get("/api/admin/captcha", (req, res) => {
+  const captcha = generateCaptcha().toUpperCase();
+  req.session.captcha = captcha;
+  
+  // 简单生成验证码文本，实际项目中可以生成图片验证码
+  res.json({
+    success: true,
+    captcha: captcha
   });
 });
 
