@@ -229,8 +229,8 @@ function deleteUploadedFiles(imagePaths = []) {
 }
 
 // 图片访问路由，带时间戳和过期时间检测
-app.get('/api/images/:filename', (req, res) => {
-  const { filename } = req.params;
+app.get('/api/images/*', (req, res) => {
+  const filename = req.params[0];
   const { ts, token } = req.query;
   
   // 验证时间戳，防止过期访问
